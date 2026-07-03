@@ -1,0 +1,49 @@
+name: Publish
+
+# Publishes to npm when you push a version tag (e.g. `git tag v0.1.1 && git push --tags`).
+# workflow_dispatch lets you re-run a publish by hand from the Actions tab.
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # required for npm provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # prepublishOnly runs the test suite; install tmux so integration tests run too.
+      - run: sudo apt-get update && sudo apt-get install -y tmux
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Guard: refuse to publish if the git tag and package.json version disagree.
+      - name: Verify tag matches package version
+        if: github.ref_type == 'tag'
+        run: |
+          pkg="$(node -p "require('./package.json').version")"
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$pkg" != "$tag" ]; then
+            echo "::error::package.json version ($pkg) does not match tag ($tag)"
+            exit 1
+          fi
+
+      # prepublishOnly runs typecheck + test + build before packing.
+      - run: pnpm publish --provenance --access public --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "sidemux": {
+      "command": "npx",
+      "args": ["-y", "sidemux"],
+      "env": {}
+    }
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "commands": [
+    {
+      "command": "pnpm test",
+      "role": "test",
+      "longRunning": false
+    },
+    {
+      "command": "pnpm lint",
+      "role": "lint",
+      "longRunning": false
+    },
+    {
+      "command": "pnpm typecheck",
+      "role": "lint",
+      "longRunning": false
+    },
+    {
+      "command": "pnpm build",
+      "role": "build",
+      "longRunning": false
+    },
+    {
+      "command": "pnpm dev",
+      "role": "dev",
+      "longRunning": true
+    }
+  ]
+}

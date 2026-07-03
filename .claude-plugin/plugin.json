@@ -1,0 +1,8 @@
+{
+  "name": "sidemux",
+  "description": "Delegate commands to tmux sidecar panes. run/wait/read tools that replace token-burning polling loops with one blocking call and incremental output reads.",
+  "author": {
+    "name": "Tom Ford",
+    "email": "me@tomfordweb.net"
+  }
+}
