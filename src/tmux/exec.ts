@@ -33,13 +33,11 @@ export function createTmuxRunner(options: RunnerOptions = {}): TmuxRunner {
       const fullArgs = [...prefix, ...args];
       execFile('tmux', fullArgs, { maxBuffer: MAX_BUFFER }, (error, stdout, stderr) => {
         if (error) {
-          reject(
-            new TmuxError(
-              `tmux ${args[0] ?? ''} failed: ${stderr.trim() || error.message}`,
-              fullArgs,
-              stderr,
-            ),
-          );
+          const enoent = (error as NodeJS.ErrnoException).code === 'ENOENT';
+          const message = enoent
+            ? 'tmux is not installed or not on PATH — install tmux to use sidemux'
+            : `tmux ${args[0] ?? ''} failed: ${stderr.trim() || error.message}`;
+          reject(new TmuxError(message, fullArgs, stderr));
           return;
         }
         resolve(stdout);

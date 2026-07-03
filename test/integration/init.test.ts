@@ -116,6 +116,13 @@ describe('sidemux init', () => {
     expect(await readFile(join(dir, 'CLAUDE.md'), 'utf8')).not.toContain('sidemux-delegate');
   });
 
+  test('--uninstall on a clean directory reports nothing to remove', async () => {
+    const { io, text } = fakeIo();
+    await runInit({ cwd: dir, argv: ['--uninstall'], io });
+
+    expect(text()).toContain('nothing to remove');
+  });
+
   test('--uninstall strips the sidemux .mcp.json entry but keeps other servers', async () => {
     const { io, text } = fakeIo();
     await writeFile(

@@ -106,6 +106,12 @@ into (REPLs, TUIs, interactive prompts), a content-stability heuristic detects
 idleness instead. The full design is described in
 [docs/how-it-works.md](docs/how-it-works.md).
 
+## Requirements
+
+- **tmux** on your `PATH` — sidemux drives real tmux panes; without it every
+  tool returns `tmux is not installed or not on PATH`.
+- **Node ≥ 18** — the server targets node18 and uses the modern `node:` APIs.
+
 ## Install (local, pre-publish)
 
 ```bash

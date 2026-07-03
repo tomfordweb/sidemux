@@ -1,6 +1,6 @@
 import type { PaneLayout } from '../config.js';
 import type { PaneInfo, PaneState } from '../types.js';
-import type { TmuxRunner } from './exec.js';
+import { TmuxError, type TmuxRunner } from './exec.js';
 import {
   LIST_PANES_FORMAT,
   PANE_STATE_FORMAT,
@@ -82,7 +82,16 @@ export class TmuxClient {
   }
 
   async listPanes(): Promise<PaneInfo[]> {
-    const out = await this.run(['list-panes', '-a', '-F', LIST_PANES_FORMAT]);
+    let out: string;
+    try {
+      out = await this.run(['list-panes', '-a', '-F', LIST_PANES_FORMAT]);
+    } catch (error) {
+      // No tmux server running yet → no panes. Any other failure re-throws.
+      if (error instanceof TmuxError && /no server running/.test(error.stderr)) {
+        return [];
+      }
+      throw error;
+    }
     return parsePaneList(out);
   }
 

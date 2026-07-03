@@ -376,22 +376,49 @@ async function sync(dir: string, yes: boolean, io: InitIO): Promise<number> {
   return 0;
 }
 
+/** Join a list with commas and an Oxford "and": [a] → "a", [a,b,c] → "a, b, and c". */
+function joinList(items: string[]): string {
+  if (items.length <= 1) return items.join('');
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`;
+}
+
 async function uninstall(dir: string, out: NodeJS.WritableStream): Promise<void> {
-  const { rm } = await import('node:fs/promises');
+  const { rm, stat } = await import('node:fs/promises');
+  const exists = async (path: string): Promise<boolean> => {
+    try {
+      await stat(path);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const hadSidemuxDir = await exists(join(dir, '.sidemux'));
   await rm(join(dir, '.sidemux', 'delegate-guard.mjs'), { force: true });
   await rm(join(dir, '.sidemux', 'delegate.json'), { force: true });
   await rm(join(dir, '.sidemux'), { recursive: true, force: true });
 
   const settingsPath = join(dir, '.claude', 'settings.json');
   const settings = await readJson(settingsPath);
+  let removedHook = false;
   if (settings) {
-    await writeFile(settingsPath, `${JSON.stringify(removeSettingsHook(settings), null, 2)}\n`);
+    const stripped = removeSettingsHook(settings);
+    removedHook = JSON.stringify(stripped) !== JSON.stringify(settings);
+    if (removedHook) await writeFile(settingsPath, `${JSON.stringify(stripped, null, 2)}\n`);
   }
 
+  let removedDirectives = false;
   for (const name of ['CLAUDE.md', 'AGENTS.md']) {
     const path = join(dir, name);
     const existing = await readText(path);
-    if (existing) await writeFile(path, removeMarkedBlock(existing));
+    if (existing) {
+      const stripped = removeMarkedBlock(existing);
+      if (stripped !== existing) {
+        await writeFile(path, stripped);
+        removedDirectives = true;
+      }
+    }
   }
 
   const mcpPath = join(dir, '.mcp.json');
@@ -401,11 +428,17 @@ async function uninstall(dir: string, out: NodeJS.WritableStream): Promise<void>
     await writeFile(mcpPath, `${JSON.stringify(removeMcpServer(mcp), null, 2)}\n`);
   }
 
-  out.write(
-    'sidemux init: removed guard, hook, and delegation directives' +
-      (hadMcpEntry ? ', and the sidemux entry in .mcp.json' : '') +
-      '.\n',
-  );
+  if (!hadSidemuxDir && !removedHook && !removedDirectives && !hadMcpEntry) {
+    out.write('sidemux init: nothing to remove — sidemux was not installed here.\n');
+    return;
+  }
+
+  const removed: string[] = [];
+  if (hadSidemuxDir) removed.push('guard');
+  if (removedHook) removed.push('hook');
+  if (removedDirectives) removed.push('delegation directives');
+  if (hadMcpEntry) removed.push('the sidemux entry in .mcp.json');
+  out.write(`sidemux init: removed ${joinList(removed)}.\n`);
 }
 
 /** Entry point for `sidemux init`. Returns a process exit code. */
