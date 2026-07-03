@@ -1,9 +1,13 @@
-# sidemux
+# Stop letting your AI agent babysit terminals.
 
-> **Stop letting your AI agent babysit terminals.** sidemux is an MCP server
-> that delegates token-heavy commands to live tmux sidecar panes, giving AI
-> coding agents an efficient `run` / `wait` / `read` loop — with measured
-> token reductions of up to **97%** on real-world projects.
+`sidemux` is an MCP server that delegates token-heavy commands to live tmux sidecar panes, giving AI coding agents an efficient `run` / `wait` / `read` loop — with measured token reductions of up to **98.9%** on real-world projects.
+
+## Imagine this:
+
+> **You are days away from the deadline.** Remaining budget is slim, and your
+> agent keeps breaking the checkout E2E. Time and time again it fires the slop
+> cannon at the robust E2E suite you told it to write for the last month while it burns
+> 500,000 tokens filling up your context while reading error output from a failed database connection.
 
 Modern coding agents pay for terminal output twice: once in tokens, and again
 in degraded context quality. sidemux moves that output out of the model's
@@ -21,7 +25,7 @@ two typical failure modes:
 
 1. The agent runs `npm build` inline, and its context ingests the entire
    output — every progress bar, every warning, every line of noise; or
-2. The agent starts the command in a pane and then *polls*: capture pane →
+2. The agent starts the command in a pane and then _polls_: capture pane →
    "still running" → capture pane → "still running" → … Each poll is a full
    model turn, and each capture dumps the whole terminal back into context.
 
@@ -30,13 +34,13 @@ it almost never needs.
 
 ## What sidemux does instead
 
-| Step | Tool call | Tokens spent |
-|------|-----------|--------------|
-| Start the build | `run {command: "pnpm build"}` | one call; a pane appears beside you, in your cwd |
-| Wait for it | *(none — `run` blocks server-side)* | zero polling turns |
-| It succeeded | *(nothing — `run` already returned the exit code + a 10-line tail)* | zero |
-| It failed | `read {grep: "error\|FAIL", context: 3}` | only the error lines |
-| Check a dev server later | `read {since: "last-read"}` | only the log lines that are new since the last look |
+| Step                     | Tool call                                                           | Tokens spent                                        |
+| ------------------------ | ------------------------------------------------------------------- | --------------------------------------------------- |
+| Start the build          | `run {command: "pnpm build"}`                                       | one call; a pane appears beside you, in your cwd    |
+| Wait for it              | _(none — `run` blocks server-side)_                                 | zero polling turns                                  |
+| It succeeded             | _(nothing — `run` already returned the exit code + a 10-line tail)_ | zero                                                |
+| It failed                | `read {grep: "error\|FAIL", context: 3}`                            | only the error lines                                |
+| Check a dev server later | `read {since: "last-read"}`                                         | only the log lines that are new since the last look |
 
 The waiting happens inside the MCP server — a local process polling tmux with
 adaptive backoff — not in the model loop. Reads are incremental: a per-pane
@@ -54,25 +58,63 @@ real MCP stdio — and reports the estimated tokens an agent ingests each way:
 sidemux benchmark --command "pnpm test" --command "pnpm build"
 ```
 
+For long-running builds or Playwright suites, increase the per-command timeout:
+
+```bash
+SIDEMUX_BENCH_TIMEOUT_MS=1800000 sidemux benchmark --command "pnpm e2e"
+```
+
+There are two separate timeout layers. `timeout_ms` controls how long sidemux
+lets the command run in tmux. Your MCP client also has its own request timeout;
+if that client kills tool calls after 60 seconds, it must allow longer requests
+or reset its timeout when sidemux sends progress notifications. The benchmark
+CLI exposes both layers through `SIDEMUX_BENCH_TIMEOUT_MS` and
+`SIDEMUX_BENCH_REQUEST_TIMEOUT_MS`.
+
 On this repository (`pnpm bench`) — a small, quiet test suite:
 
-| Command | Inline | sidemux | Reduction |
-|---------|-------:|--------:|----------:|
-| `pnpm test` | 673 tok | 123 tok | **5×** |
-| `pnpm typecheck` | 4 tok | 36 tok | — |
-| `pnpm build` | 71 tok | 90 tok | — |
+| Command          |  Inline | sidemux | Reduction |
+| ---------------- | ------: | ------: | --------: |
+| `pnpm test`      | 673 tok | 123 tok |    **5×** |
+| `pnpm typecheck` |   4 tok |  36 tok |         — |
+| `pnpm build`     |  71 tok |  90 tok |         — |
 
 On a mid-size Angular/Vite app in an Nx monorepo — **97.3% saved overall**:
 
-| Command | Inline | sidemux | Reduction |
-|---------|-------:|--------:|----------:|
-| `pnpm nx run app:test` | 1,904 tok | 127 tok | **15×** |
-| `pnpm nx run app:build` | 11,210 tok | 113 tok | **99×** |
-| `pnpm nx run app:lint` | 61 tok | 119 tok | — |
+| Command                 |     Inline | sidemux | Reduction |
+| ----------------------- | ---------: | ------: | --------: |
+| `pnpm nx run app:test`  |  1,904 tok | 127 tok |   **15×** |
+| `pnpm nx run app:build` | 11,210 tok | 113 tok |   **99×** |
+| `pnpm nx run app:lint`  |     61 tok | 119 tok |         — |
+
+On six anonymized targets from a larger Nx monorepo — Astro SSR/static sites,
+an Analog/Vite app, and an Angular app, all run with Nx cache disabled —
+**98.1% saved overall**:
+
+| Target                                  |     Inline | sidemux | Reduction |
+| --------------------------------------- | ---------: | ------: | --------: |
+| Verbose Astro content site build        | 32,589 tok | 132 tok |  **247×** |
+| Small Astro static site build           |    334 tok | 124 tok |    **3×** |
+| Astro data-heavy static site build      |    504 tok | 123 tok |    **4×** |
+| Astro content-commerce site build       |    557 tok | 122 tok |    **5×** |
+| Analog/Vite SSR app build               |  2,547 tok | 114 tok |   **22×** |
+| Angular app build with asset generation |  2,089 tok | 126 tok |   **17×** |
+
+On five anonymized headless Playwright E2E targets from the same monorepo —
+each target builds its app first, then runs browser tests — **98.9% saved
+overall**:
+
+| Target                            |     Inline | sidemux | Reduction |
+| --------------------------------- | ---------: | ------: | --------: |
+| Verbose Astro E2E suite           | 33,042 tok |  90 tok |  **369×** |
+| Small Astro E2E suite             |  1,628 tok |  90 tok |   **18×** |
+| Data-heavy Astro E2E suite        |  1,790 tok |  90 tok |   **20×** |
+| Content-commerce Astro E2E suite  |  2,044 tok |  90 tok |   **23×** |
+| Angular app E2E suite             |  3,557 tok |  90 tok |   **40×** |
 
 Savings scale with output volume. Chatty commands — test suites, verbose
 builds, dev-server logs — collapse to an exit code plus a 10-line tail, while
-quiet commands have nothing to save: the `—` rows cost slightly *more* than
+quiet commands have nothing to save: the `—` rows cost slightly _more_ than
 inline because of the tool-result envelope. Tokens are estimated as chars ÷ 4,
 and the benchmark runs on a throwaway tmux socket, never your real tmux
 server.
@@ -81,15 +123,15 @@ server.
 
 Seven tools cover the entire lifecycle of a delegated command:
 
-| Tool | What it does |
-|------|--------------|
-| `run` | Runs a command in a tmux pane (auto-created in the agent's cwd). Blocks until exit or timeout; returns `job_id`, `exit_code`, and a short tail. Use `background: true` for servers and watchers. |
-| `wait` | Blocks until a job exits, output matches a regex (`until: "pattern"` — ideal for server-ready lines), or the pane goes idle (`until: "idle"` — for interactive prompts). Timeouts are re-armable: simply call `wait` again. |
-| `read` | Token-lean output retrieval. `since: "last-read"` returns only new lines; `grep` + `context` filters; `lines` caps the tail; `max_bytes` is a hard ceiling. |
-| `send_keys` | Types into a pane — answer prompts, send `C-c`. Always refuses the agent's own pane. |
-| `list_panes` | Lists panes together with their sidemux job status. |
-| `kill` | `interrupt` (Ctrl-C) or `kill-pane` (managed panes only). |
-| `close_all` | Destroys every pane sidemux created this session in one call — tidy up all sidecar panes when you're done. Leaves your own editor/shell panes untouched. |
+| Tool         | What it does                                                                                                                                                                                                                |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `run`        | Runs a command in a tmux pane (auto-created in the agent's cwd). Blocks until exit or timeout; returns `job_id`, `exit_code`, and a short tail. Use `background: true` for servers and watchers.                            |
+| `wait`       | Blocks until a job exits, output matches a regex (`until: "pattern"` — ideal for server-ready lines), or the pane goes idle (`until: "idle"` — for interactive prompts). Timeouts are re-armable: simply call `wait` again. |
+| `read`       | Token-lean output retrieval. `since: "last-read"` returns only new lines; `grep` + `context` filters; `lines` caps the tail; `max_bytes` is a hard ceiling.                                                                 |
+| `send_keys`  | Types into a pane — answer prompts, send `C-c`. Always refuses the agent's own pane.                                                                                                                                        |
+| `list_panes` | Lists panes together with their sidemux job status.                                                                                                                                                                         |
+| `kill`       | `interrupt` (Ctrl-C) or `kill-pane` (managed panes only).                                                                                                                                                                   |
+| `close_all`  | Destroys every pane sidemux created this session in one call — tidy up all sidecar panes when you're done. Leaves your own editor/shell panes untouched.                                                                    |
 
 ## Reliable completion detection
 
@@ -100,7 +142,7 @@ your-command; printf '\n<<SMUX:%s:%d>>\n' 'j4f2a1' $?
 ```
 
 The completed sentinel (`<<SMUX:j4f2a1:0>>`) carries the real exit code. The
-*echoed* command line can never produce a false positive — it contains the
+_echoed_ command line can never produce a false positive — it contains the
 literal `%d`, and the matcher requires digits. For panes sidemux didn't launch
 into (REPLs, TUIs, interactive prompts), a content-stability heuristic detects
 idleness instead. The full design is described in
@@ -146,6 +188,16 @@ sidemux init --sync                # refresh generated files + ask about new scr
 sidemux uninstall                  # revert everything init added (alias: init --uninstall)
 ```
 
+To make a custom script default to sidemux, pass the exact command string:
+
+```bash
+sidemux init --commands "pnpm db:migrate,pnpm e2e:checkout,pnpm import:big-csv"
+```
+
+The guard blocks those commands when an agent tries to run them inline and feeds
+back the sidemux `run` call instead. Clients without hooks still get the same
+instruction through `AGENTS.md` / `CLAUDE.md`.
+
 Details: [docs/setup-delegation.md](docs/setup-delegation.md).
 
 ## Configuration
@@ -153,19 +205,19 @@ Details: [docs/setup-delegation.md](docs/setup-delegation.md).
 Everything is optional, controlled through environment variables in the MCP
 server config:
 
-| Variable | Default | Meaning |
-|----------|---------|---------|
-| `SIDEMUX_SESSION` | `smux` | Session name when the agent runs outside tmux |
-| `SIDEMUX_MANAGED_ONLY` | off | `1` = write operations restricted to sidemux-created panes |
-| `SIDEMUX_SHELL` | auto | Force the sentinel dialect (`fish` or anything POSIX) |
-| `SIDEMUX_TMUX_SOCKET` | default | tmux `-L` socket name |
-| `SIDEMUX_MAX_OUTPUT_BYTES` | `8192` | Base cap on read sizes |
-| `SIDEMUX_REUSE_PANES` | on | Reruns reuse the pane that last ran the command (else any idle pane); `0` = new pane per run |
-| `SIDEMUX_PANE_SHELL` | login shell | Shell command for created panes (e.g. `sh`) |
-| `SIDEMUX_LAYOUT` | `bottom` | Edge for the full-span pane bar: `right`/`left`/`top`/`bottom` |
-| `SIDEMUX_PANE_SIZE` | `30%` | Size of created panes: `NN%` or an integer cell count |
-| `SIDEMUX_PANE_HEADER` | on | Show a `command · %id` header on sidemux panes only (tmux pane border); `0` = off |
-| `SIDEMUX_CLOSE_ON_SUCCESS` | off | `1` = auto-close a pane after its command exits `0` (failed panes stay up) |
+| Variable                   | Default     | Meaning                                                                                      |
+| -------------------------- | ----------- | -------------------------------------------------------------------------------------------- |
+| `SIDEMUX_SESSION`          | `smux`      | Session name when the agent runs outside tmux                                                |
+| `SIDEMUX_MANAGED_ONLY`     | off         | `1` = write operations restricted to sidemux-created panes                                   |
+| `SIDEMUX_SHELL`            | auto        | Force the sentinel dialect (`fish` or anything POSIX)                                        |
+| `SIDEMUX_TMUX_SOCKET`      | default     | tmux `-L` socket name                                                                        |
+| `SIDEMUX_MAX_OUTPUT_BYTES` | `8192`      | Base cap on read sizes                                                                       |
+| `SIDEMUX_REUSE_PANES`      | on          | Reruns reuse the pane that last ran the command (else any idle pane); `0` = new pane per run |
+| `SIDEMUX_PANE_SHELL`       | login shell | Shell command for created panes (e.g. `sh`)                                                  |
+| `SIDEMUX_LAYOUT`           | `bottom`    | Edge for the full-span pane bar: `right`/`left`/`top`/`bottom`                               |
+| `SIDEMUX_PANE_SIZE`        | `30%`       | Size of created panes: `NN%` or an integer cell count                                        |
+| `SIDEMUX_PANE_HEADER`      | on          | Show a `command · %id` header on sidemux panes only (tmux pane border); `0` = off            |
+| `SIDEMUX_CLOSE_ON_SUCCESS` | off         | `1` = auto-close a pane after its command exits `0` (failed panes stay up)                   |
 
 ## Designed-in behavior
 
@@ -187,29 +239,15 @@ server config:
   list, sentinel included, so interrupted jobs receive a synthetic `130`.
 - **Long waits vs. client timeouts:** `wait` returns `status: "timeout"`
   before most client tool timeouts fire, and the agent simply calls `wait`
-  again. sidemux also emits MCP progress notifications for clients that pass a
+  again. For a single long `run` call, the MCP client must allow a request long
+  enough for the command, or reset its timeout on sidemux progress
+  notifications. sidemux emits those notifications for clients that pass a
   progress token.
-
-## How sidemux compares
-
-sidemux is, to our knowledge, the only tmux MCP server with server-side
-blocking waits, incremental new-output-only reads, and grep/tail/byte-cap
-output shaping — the three capabilities that actually save tokens:
-
-| | sidemux | nickgnd/tmux-mcp | lox/tmux-mcp-server |
-|---|---|---|---|
-| Blocking wait (exit / pattern / idle) | ✅ | ❌ | ❌ |
-| Exit-code detection | ✅ sentinel | ✅ shell-config | ❌ |
-| Incremental "new output only" reads | ✅ | ❌ | ❌ |
-| grep/tail/byte-cap output shaping | ✅ | ❌ | ❌ |
-| Agent-safety guards (own pane, managed-only) | ✅ | ❌ | ❌ |
-| Claude plugin + workflow skill | ✅ | ❌ | ❌ |
-| Full session/window CRUD | scoped to what `run` needs | ✅ | partial |
 
 ## Development
 
 ```bash
-pnpm test        # unit + integration (real tmux on a throwaway socket) + e2e
+pnpm test        # unit + integration (real tmux on a throwaway socket) + E2E
 pnpm coverage    # 80% thresholds enforced
 pnpm lint        # eslint (typescript-eslint recommended)
 pnpm typecheck   # tsc --noEmit
@@ -222,4 +260,4 @@ Integration tests never touch your real tmux server — they run on isolated
 
 ## License
 
-[MIT](LICENSE)
+[GNU GPLv3](LICENSE)

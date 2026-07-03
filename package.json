@@ -13,17 +13,32 @@
     "opencode",
     "terminal"
   ],
-  "license": "MIT",
+  "license": "GPL-3.0-only",
   "author": "Tom Ford <me@tomfordweb.net>",
+  "homepage": "https://github.com/tomfordweb/sidemux#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tomfordweb/sidemux.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tomfordweb/sidemux/issues"
+  },
   "type": "module",
+  "packageManager": "pnpm@11.5.1",
   "bin": {
     "sidemux": "dist/index.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "src",
+    "tsconfig.json",
+    "tsup.config.ts"
   ],
   "engines": {
     "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "build": "tsup",
@@ -34,6 +49,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "bench": "node dist/index.js benchmark --command \"pnpm test\" --command \"pnpm typecheck\" --command \"pnpm build\"",
+    "pack:dry-run": "npm pack --dry-run",
     "prepublishOnly": "npm run lint && npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {

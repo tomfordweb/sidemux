@@ -30,8 +30,12 @@ const HELP = `sidemux benchmark — measure token savings of the sidemux flow vs
 Usage: sidemux benchmark --command "cmd" [--command "cmd"]...
 
   --command "cmd"      A real command from the current directory to bench
-                       (repeatable, e.g. --command "pnpm test")
+                        (repeatable, e.g. --command "pnpm test")
   --help, -h           Show this help
+
+Environment:
+  SIDEMUX_BENCH_TIMEOUT_MS          Per-command sidemux run timeout (default: 900000)
+  SIDEMUX_BENCH_REQUEST_TIMEOUT_MS  MCP request timeout (default: run timeout + 60000)
 
 Each command runs twice: once inline (its full output is the baseline — what a
 Bash tool call would inject into an agent's context) and once through the
@@ -51,6 +55,14 @@ interface Measurement {
 
 const tokens = (chars: number): number => Math.ceil(chars / 4);
 const fmt = (n: number): string => n.toLocaleString('en-US');
+const DEFAULT_RUN_TIMEOUT_MS = 15 * 60 * 1000;
+
+function envDurationMs(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
 
 /** Chars the agent actually ingests from one MCP tool result. */
 function resultChars(result: unknown): number {
@@ -68,9 +80,16 @@ function inlineChars(command: string, cwd: string): number {
 }
 
 async function benchCommand(client: Client, command: string, cwd: string): Promise<Measurement> {
+  const runTimeoutMs = envDurationMs('SIDEMUX_BENCH_TIMEOUT_MS', DEFAULT_RUN_TIMEOUT_MS);
+  const requestTimeoutMs = envDurationMs('SIDEMUX_BENCH_REQUEST_TIMEOUT_MS', runTimeoutMs + 60_000);
   const run = await client.callTool({
     name: 'run',
-    arguments: { command, timeout_ms: 300_000, close: true },
+    arguments: { command, timeout_ms: runTimeoutMs, close: true },
+  }, undefined, {
+    // Long builds/e2e runs are exactly what the benchmark is meant to measure.
+    timeout: requestTimeoutMs,
+    resetTimeoutOnProgress: true,
+    maxTotalTimeout: requestTimeoutMs,
   });
   return { inline: inlineChars(command, cwd), sidemux: resultChars(run) };
 }

@@ -32,11 +32,14 @@ SIDEMUX_SESSION = "smux"
 ## Notes
 
 - Run Codex from inside a tmux session and sidemux splits panes beside it.
-  Outside tmux, it creates a detached `smux` session instead (`tmux attach -t
-  smux` to watch).
+  Without the agent's tmux env, sidemux hosts a switchable `smux` window in an
+  attached tmux session when possible; with no attached client, it creates a
+  detached `smux` session instead (`tmux attach -t smux` to watch).
 - Codex has its own tool-call timeout (`tool_timeout_sec` in newer releases).
   sidemux's `wait` returns a re-armable `timeout` status before typical
-  defaults fire; the agent simply calls `wait` again to keep waiting.
+  defaults fire; the agent simply calls `wait` again to keep waiting. For a
+  single long `run` call, set Codex's timeout high enough for the command or
+  prefer `background: true` plus `wait`.
 - Codex has no skill system, but the tool descriptions themselves teach the
   run → wait → read-on-failure loop, which is enough for day-to-day use. If
   you maintain an `AGENTS.md`, paste in the "loop" section from

@@ -51,7 +51,9 @@ Optional configuration is passed through the `environment` key:
 ## Notes
 
 - The tmux behavior is the same as everywhere else: inside tmux, sidemux
-  splits a sidecar pane; outside tmux, it creates a detached `smux` session.
+  splits a sidecar pane. Without the agent's tmux env, it hosts a switchable
+  `smux` window in an attached tmux session when possible; with no attached
+  client, it creates a detached `smux` session.
 - If you use OpenCode rules files (`AGENTS.md`), the "loop" section of
   [skills/tmux-delegate/SKILL.md](../skills/tmux-delegate/SKILL.md) is a
   ready-made paste that teaches the workflow explicitly.

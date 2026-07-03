@@ -15,24 +15,26 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       # prepublishOnly runs the test suite; install tmux so integration tests run too.
-      - run: sudo apt-get update && sudo apt-get install -y tmux
+      - name: Install tmux
+        run: sudo apt-get update && sudo apt-get install -y tmux
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: 22
-          registry-url: https://registry.npmjs.org
           cache: pnpm
+          registry-url: https://registry.npmjs.org
 
-      - run: pnpm install --frozen-lockfile
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
-      # Guard: refuse to publish if the git tag and package.json version disagree.
       - name: Verify tag matches package version
         if: github.ref_type == 'tag'
         run: |
@@ -43,7 +45,7 @@ jobs:
             exit 1
           fi
 
-      # prepublishOnly runs typecheck + test + build before packing.
-      - run: pnpm publish --provenance --access public --no-git-checks
+      - name: Publish to npm
+        run: pnpm publish --provenance --access public --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

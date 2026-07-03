@@ -26,6 +26,33 @@ sidemux init --commands "pytest,composer test"  # any language — commands are 
 sidemux init --yes --mcp                         # also register the MCP server
 ```
 
+## Make a custom script default to sidemux
+
+Pass the exact command string with `--commands`. The generated guard blocks that
+inline command and tells the agent to use sidemux instead:
+
+```bash
+sidemux init --commands "pnpm db:migrate,pnpm e2e:checkout"
+```
+
+For package-manager scripts, use the command the agent would normally type:
+
+```bash
+sidemux init --commands "pnpm run import:big-csv,npm run storybook"
+```
+
+To add more custom commands later, re-run with the full desired list or edit
+`.sidemux/delegate.json`, then refresh generated docs/hooks:
+
+```bash
+sidemux init --commands "pnpm test,pnpm e2e:checkout,pnpm import:big-csv"
+sidemux init --sync --yes
+```
+
+Clients without hook enforcement (Codex, OpenCode) still rely on instructions.
+Add the custom command to the managed block in `AGENTS.md` / `CLAUDE.md`, or
+re-run `sidemux init --commands ...` so sidemux writes that block for you.
+
 `init` detects candidates from, grouped as test / lint / build / dev:
 
 - `package.json` scripts (mapped to your package manager via the lockfile)
@@ -38,7 +65,7 @@ sidemux init --yes --mcp                         # also register the MCP server
 
 **Nothing detected?** Init still offers to install a *generic* directive block
 that tells the agent to route heavy commands — test suites, linters, type
-checkers, builds, e2e runs, dev servers — through sidemux by theme. The guard
+checkers, builds, E2E runs, dev servers — through sidemux by theme. The guard
 has nothing to block until you add commands (`--commands`, or `sidemux init
 --sync` once the project grows recognizable ones).
 

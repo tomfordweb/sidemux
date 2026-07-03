@@ -56,7 +56,8 @@ Claude Code's per-tool-call timeout (`MCP_TOOL_TIMEOUT`, plus `MCP_TIMEOUT`
 for server startup) must exceed your longest `wait`. The defaults are usually
 fine, because sidemux's own `timeout_ms` (default 120s for `wait`) returns a
 re-armable `status: "timeout"` result first — Claude then simply calls `wait`
-again. For very long builds you can raise both:
+again. For a single long `run` call, raise the timeout enough for the command
+or use `background: true` plus `wait`. For very long builds you can raise it:
 
 ```bash
 export MCP_TOOL_TIMEOUT=600000   # 10 min, milliseconds
