@@ -1,8 +1,11 @@
 import { describe, expect, test } from 'vitest';
 import {
+  classifyCommandRole,
   detectCandidates,
   detectPackageManager,
+  execCommand,
   matchesDelegated,
+  nxProjectScripts,
   parseJustfileRecipes,
   parsePyproject,
   scriptCommand,
@@ -14,6 +17,55 @@ describe('detectPackageManager', () => {
     expect(detectPackageManager(['yarn.lock'])).toBe('yarn');
     expect(detectPackageManager(['package-lock.json'])).toBe('npm');
     expect(detectPackageManager([])).toBe('npm');
+  });
+
+  test('precedence: lockfile > packageManager pin > pnpm-workspace.yaml > fallback > npm', () => {
+    expect(detectPackageManager(['yarn.lock'], 'pnpm@11.5.1')).toBe('yarn');
+    expect(detectPackageManager([], 'pnpm@11.5.1')).toBe('pnpm');
+    expect(detectPackageManager([], 'yarn')).toBe('yarn');
+    expect(detectPackageManager([], 'pnpm@11.5.1', 'yarn')).toBe('pnpm');
+    expect(detectPackageManager(['pnpm-workspace.yaml'])).toBe('pnpm');
+    expect(detectPackageManager(['pnpm-workspace.yaml'], undefined, 'yarn')).toBe('pnpm');
+    expect(detectPackageManager([], undefined, 'pnpm')).toBe('pnpm');
+    expect(detectPackageManager([], 'not-a-pin')).toBe('npm');
+  });
+});
+
+describe('execCommand', () => {
+  test('npm uses npx, pnpm uses exec, yarn is direct', () => {
+    expect(execCommand('npm', 'nx')).toBe('npx nx');
+    expect(execCommand('pnpm', 'nx')).toBe('pnpm exec nx');
+    expect(execCommand('yarn', 'nx')).toBe('yarn nx');
+  });
+});
+
+describe('nxProjectScripts', () => {
+  test('emits one script per project × known target, sorted, skipping unknown targets', () => {
+    const scripts = nxProjectScripts('pnpm', [
+      { name: 'web', targets: ['lint', 'build', 'deploy', 'serve'] },
+      { name: 'api', targets: ['test', 'typecheck'] },
+      { name: 'e2e-web', targets: ['e2e'] },
+      { name: 'empty', targets: [] },
+    ]);
+    expect([...scripts.entries()]).toEqual([
+      ['api:test', 'pnpm exec nx run api:test'],
+      ['api:typecheck', 'pnpm exec nx run api:typecheck'],
+      ['e2e-web:e2e', 'pnpm exec nx run e2e-web:e2e'],
+      ['web:build', 'pnpm exec nx run web:build'],
+      ['web:lint', 'pnpm exec nx run web:lint'],
+    ]);
+  });
+});
+
+describe('classifyCommandRole', () => {
+  test('groups commands by keyword, e2e before test', () => {
+    expect(classifyCommandRole('pnpm exec nx run web:e2e')).toBe('e2e');
+    expect(classifyCommandRole('pnpm exec playwright test')).toBe('e2e');
+    expect(classifyCommandRole('pnpm vitest run')).toBe('test');
+    expect(classifyCommandRole('pnpm typecheck')).toBe('lint');
+    expect(classifyCommandRole('cargo build')).toBe('build');
+    expect(classifyCommandRole('pnpm dev')).toBe('dev');
+    expect(classifyCommandRole('echo hi')).toBe('other');
   });
 });
 
@@ -46,6 +98,19 @@ describe('detectCandidates', () => {
       makefileTargets: ['test', 'clean'],
     });
     expect(candidates).toEqual([{ role: 'test', command: 'make test', longRunning: false }]);
+  });
+
+  test('nx.json proposes run-many per role, only for roles root scripts miss', () => {
+    const candidates = detectCandidates({
+      packageJson: { scripts: { lint: 'nx run-many -t lint' } },
+      rootFiles: ['nx.json', 'pnpm-workspace.yaml'],
+    });
+    expect(candidates).toEqual([
+      { role: 'test', command: 'pnpm exec nx run-many -t test', longRunning: false },
+      { role: 'lint', command: 'pnpm lint', longRunning: false },
+      { role: 'build', command: 'pnpm exec nx run-many -t build', longRunning: false },
+      { role: 'e2e', command: 'pnpm exec nx run-many -t e2e', longRunning: false },
+    ]);
   });
 
   test('empty when nothing recognized', () => {

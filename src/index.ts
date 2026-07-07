@@ -1,6 +1,8 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { runBenchmark } from './bench/run.js';
 import { loadConfig } from './config.js';
+import { loadGlobalFileConfig } from './config-file.js';
+import { runDashboard } from './dashboard.js';
 import { runInit } from './init/install.js';
 import { buildServer } from './server.js';
 import { SidemuxService } from './service.js';
@@ -8,7 +10,7 @@ import { TmuxClient } from './tmux/client.js';
 import { createTmuxRunner } from './tmux/exec.js';
 
 async function serve(): Promise<void> {
-  const config = loadConfig();
+  const config = loadConfig(process.env, process.cwd(), loadGlobalFileConfig());
   const runner = createTmuxRunner({ socketName: config.socketName });
   const client = new TmuxClient(runner);
   const service = new SidemuxService(client, config);
@@ -33,11 +35,17 @@ async function main(): Promise<void> {
   }
   if (process.argv[2] === 'benchmark' || process.argv[2] === 'bench') {
     const code = await runBenchmark({
-      entry: process.argv[1]!,
+      entry: process.argv[1] ?? 'sidemux',
       cwd: process.cwd(),
       argv: process.argv.slice(3),
     });
     process.exit(code);
+  }
+  if (process.argv[2] === 'dashboard') {
+    const config = loadConfig(process.env, process.cwd(), loadGlobalFileConfig());
+    const runner = createTmuxRunner({ socketName: config.socketName });
+    await runDashboard(new TmuxClient(runner), config);
+    return;
   }
   await serve();
 }

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { TmuxClient } from '../tmux/client.js';
+import { clampCaptureStart, totalLines } from './shared.js';
 
 interface CursorState {
   /** Absolute line count (history_size + cursor_y + 1) at last read. */
@@ -52,20 +53,20 @@ export class CursorTracker {
     fallbackTailLines = 100,
   ): Promise<IncrementalRead> {
     const state = await client.paneState(paneId);
-    const currentTotal = state.historySize + state.cursorY + 1;
+    const currentTotal = totalLines(state);
     const stored = this.cursors.get(paneId);
 
     const resetRead = async (): Promise<IncrementalRead> => {
-      const start = Math.max(-state.historySize, state.cursorY - fallbackTailLines + 1);
+      const start = clampCaptureStart(state, state.cursorY - fallbackTailLines + 1);
       const lines = await client.capturePane(paneId, start, state.cursorY);
       await this.advance(client, paneId, state.historySize, state.cursorY);
       return { lines, cursorReset: true, totalLines: currentTotal };
     };
 
-    if (!stored) return resetRead();
+    if (!stored) {return resetRead();}
 
     // Screen cleared or history vanished: absolute count went backwards.
-    if (currentTotal < stored.totalLines) return resetRead();
+    if (currentTotal < stored.totalLines) {return resetRead();}
 
     // Validate the anchor: the lines just before the old cursor must match
     // what we hashed last time, otherwise scrollback rotated underneath our
@@ -79,7 +80,7 @@ export class CursorTracker {
         anchorStartAbs - state.historySize,
         anchorEndAbs - state.historySize,
       );
-      if (hashLines(anchorLines) !== stored.anchorHash) return resetRead();
+      if (hashLines(anchorLines) !== stored.anchorHash) {return resetRead();}
     }
 
     if (currentTotal === stored.totalLines) {
@@ -90,7 +91,7 @@ export class CursorTracker {
     // echoed command, which is context the agent should see once.
     const lines = await client.capturePane(
       paneId,
-      Math.max(-state.historySize, stored.totalLines - 1 - state.historySize),
+      clampCaptureStart(state, stored.totalLines - 1 - state.historySize),
       state.cursorY,
     );
     await this.advance(client, paneId, state.historySize, state.cursorY);
@@ -109,11 +110,11 @@ export class CursorTracker {
     historySize: number,
     cursorY: number,
   ): Promise<void> {
-    const totalLines = historySize + cursorY + 1;
+    const total = totalLines({ historySize, cursorY });
     // Anchor = up to ANCHOR_SPAN lines ending just BEFORE the cursor line;
     // the cursor line is the live prompt and mutates when a command is typed.
-    const anchorEndAbs = totalLines - 2;
-    const anchorStartAbs = Math.max(0, totalLines - 1 - ANCHOR_SPAN);
+    const anchorEndAbs = total - 2;
+    const anchorStartAbs = Math.max(0, total - 1 - ANCHOR_SPAN);
     const anchorLines =
       anchorEndAbs >= anchorStartAbs
         ? await client.capturePane(
@@ -123,7 +124,7 @@ export class CursorTracker {
           )
         : [];
     this.cursors.set(paneId, {
-      totalLines,
+      totalLines: total,
       anchorHash: hashLines(anchorLines),
     });
   }

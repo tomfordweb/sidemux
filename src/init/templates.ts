@@ -16,17 +16,26 @@ const BLOCK_RE = /\n*<!-- BEGIN sidemux-delegate[\s\S]*?<!-- END sidemux-delegat
 
 function suggestion(cmd: DelegatedCommand): string {
   return cmd.longRunning
-    ? `\`run { command: ${JSON.stringify(cmd.command)}, background: true }\` then \`wait { until: "pattern", … }\``
-    : `\`run { command: ${JSON.stringify(cmd.command)} }\``;
+    ? `\`run { command: ${JSON.stringify(cmd.command)}, description: "<why>", background: true }\` then \`wait { until: "pattern", … }\``
+    : `\`run { command: ${JSON.stringify(cmd.command)}, description: "<why>" }\``;
 }
 
 /**
  * The managed markdown directive block for CLAUDE.md / AGENTS.md. With an
  * empty command list (nothing detected yet) it still instructs the agent to
  * delegate heavy commands by theme — the guard just has nothing to block.
+ * `nxScripts` adds a pointer at the generated per-project scripts.
  */
-export function directiveBlock(commands: DelegatedCommand[]): string {
+export function directiveBlock(
+  commands: DelegatedCommand[],
+  options: { nxScripts?: boolean } = {},
+): string {
   const bullets = commands.map((c) => `- \`${c.command}\` → ${suggestion(c)}`).join('\n');
+  const nxNote = options.nxScripts
+    ? 'This Nx workspace also has per-project targets as named scripts in ' +
+      '`.sidemux.toml` — run one with `run { command: "<project>:<target>" }`, ' +
+      'e.g. `run { command: "web:lint" }`.\n\n'
+    : '';
   const lead =
     commands.length === 0
       ? 'No project-specific commands are wired up yet. Still route heavy or ' +
@@ -45,11 +54,16 @@ export function directiveBlock(commands: DelegatedCommand[]): string {
     `${BLOCK_BEGIN} (managed by \`sidemux init\` — re-run to update) -->\n` +
     '## Delegate heavy commands to sidemux\n\n' +
     lead +
+    nxNote +
+    'Every `run` requires a `description` — one line of context for the human ' +
+    'watching the panes: "<stage> due to <reason>" (e.g. "typecheck gate before ' +
+    'release", "run scripts at user request"). It shows in the pane header and ' +
+    'dashboard.\n\n' +
     'Panes are reused across runs — rerun a command and it lands back in the ' +
     'same pane (its header shows the command and pane id). `background: true` ' +
     'is for servers/watchers you keep alive and later `kill`; add `close: true` ' +
     'only when you truly want the pane gone afterward.\n' +
-    `${BLOCK_END}`
+    BLOCK_END
   );
 }
 
@@ -67,9 +81,14 @@ export function removeMarkedBlock(existing: string): string {
   return existing.replace(BLOCK_RE, '').replace(/\n{3,}/g, '\n\n').replace(/^\n+/, '');
 }
 
-/** `.sidemux/delegate.json` — the command list the guard script reads. */
-export function delegateJson(commands: DelegatedCommand[]): string {
-  return `${JSON.stringify({ commands }, null, 2)}\n`;
+/**
+ * `.sidemux/delegate.json` — the command list the guard script reads, plus the
+ * names of Nx per-project scripts init generated into `.sidemux.toml` (so a
+ * re-run or uninstall can replace/remove exactly those keys).
+ */
+export function delegateJson(commands: DelegatedCommand[], nxScripts: string[] = []): string {
+  const config = nxScripts.length > 0 ? { commands, nxScripts } : { commands };
+  return `${JSON.stringify(config, null, 2)}\n`;
 }
 
 /** The self-contained PreToolUse guard script written to `.sidemux/`. */
@@ -124,8 +143,8 @@ async function main() {
 
   const entry = commands.find((c) => c.command === hit) || {};
   const suggestion = entry.longRunning
-    ? 'run { command: ' + JSON.stringify(hit) + ', background: true }  (then wait { until: "pattern", … })'
-    : 'run { command: ' + JSON.stringify(hit) + ' }';
+    ? 'run { command: ' + JSON.stringify(hit) + ', description: "<why>", background: true }  (then wait { until: "pattern", … })'
+    : 'run { command: ' + JSON.stringify(hit) + ', description: "<why>" }';
   process.stderr.write(
     '[sidemux] Delegate "' + hit + '" to a tmux pane instead of running it inline.\\n' +
     'Use the sidemux MCP tool:\\n  ' + suggestion + '\\n' +
@@ -169,21 +188,21 @@ export function mergeSettingsHook(existing: Json | null): Json {
 export function removeSettingsHook(existing: Json | null): Json {
   const settings: Json = existing ? { ...existing } : {};
   const hooks = settings.hooks as Json | undefined;
-  if (!hooks) return settings;
+  if (!hooks) {return settings;}
   const pre = asArray(hooks.PreToolUse).filter(
     (entry) => !JSON.stringify(entry).includes('delegate-guard.mjs'),
   );
   const nextHooks: Json = { ...hooks };
-  if (pre.length > 0) nextHooks.PreToolUse = pre;
-  else delete nextHooks.PreToolUse;
-  if (Object.keys(nextHooks).length > 0) settings.hooks = nextHooks;
-  else delete settings.hooks;
+  if (pre.length > 0) {nextHooks.PreToolUse = pre;}
+  else {delete nextHooks.PreToolUse;}
+  if (Object.keys(nextHooks).length > 0) {settings.hooks = nextHooks;}
+  else {delete settings.hooks;}
   return settings;
 }
 
 /**
  * Ensure the sidemux MCP server is registered in a .mcp.json object. Any keys in
- * `env` (e.g. SIDEMUX_LAYOUT / SIDEMUX_PANE_SIZE from `init`) are written into
+ * `env` (e.g. SIDEMUX_CLOSE_ON_SUCCESS from `init`) are written into
  * the server's env. A new entry gets exactly that env; an existing entry keeps
  * its command/args/other env and only has the managed keys refreshed — but only
  * when `env` is non-empty, so a plain re-run still leaves a custom entry alone.
@@ -206,10 +225,10 @@ export function mergeMcpServer(existing: Json | null, env: Record<string, string
 export function removeMcpServer(existing: Json | null): Json {
   const config: Json = existing ? { ...existing } : {};
   const servers = config.mcpServers as Json | undefined;
-  if (!servers?.sidemux) return config;
+  if (!servers?.sidemux) {return config;}
   const next: Json = { ...servers };
   delete next.sidemux;
-  if (Object.keys(next).length > 0) config.mcpServers = next;
-  else delete config.mcpServers;
+  if (Object.keys(next).length > 0) {config.mcpServers = next;}
+  else {delete config.mcpServers;}
   return config;
 }

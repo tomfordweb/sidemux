@@ -1,27 +1,38 @@
 import type { Config, ShellDialect } from './config.js';
+import { loadProjectScripts, type ProjectScript } from './config-file.js';
 import { CursorTracker } from './core/cursor.js';
 import { JobManager, scrubOutput } from './core/jobs.js';
 import { shapeOutput, type ShapedOutput } from './core/output.js';
 import { PaneAllocator } from './core/panes.js';
+import { clampCaptureStart, shellQuote } from './core/shared.js';
+import { StatsTracker } from './core/stats.js';
 import { waitFor, type WaitResult, type WaitUntil } from './core/waiter.js';
 import { listProjects, resolveProject } from './core/workspace.js';
 import type { TmuxClient } from './tmux/client.js';
 import type { Job, JobStatus } from './types.js';
 
 const TAIL_LINES = 10;
+/** Clean exits return a slimmer tail — success output is rarely re-read.
+ *  5 lines, not 3: the captured region ends with the echoed prompt line and a
+ *  blank, so ~2 lines are shell chrome. */
+const SUCCESS_TAIL_LINES = 5;
 const TAIL_BYTES = 2048;
 
 export interface RunArgs {
   command: string;
-  pane?: string;
-  name?: string;
-  cwd?: string;
+  /** Agent-supplied context: why this command runs. Shown in pane header +
+   *  dashboard. Required at the MCP schema layer; optional here so internal
+   *  callers (tests, future CLI) aren't forced to invent one. */
+  description?: string | undefined;
+  pane?: string | undefined;
+  name?: string | undefined;
+  cwd?: string | undefined;
   /** Monorepo package to target: resolves to its dir (cwd) and names the pane. */
-  project?: string;
+  project?: string | undefined;
   timeout_ms: number;
   background: boolean;
   /** Destroy the pane after a finished foreground run. Defaults to off. */
-  close?: boolean;
+  close?: boolean | undefined;
 }
 
 export interface RunResult {
@@ -35,10 +46,10 @@ export interface RunResult {
 }
 
 export interface WaitArgs {
-  job_id?: string;
-  pane?: string;
+  job_id?: string | undefined;
+  pane?: string | undefined;
   until: WaitUntil;
-  pattern?: string;
+  pattern?: string | undefined;
   idle_ms: number;
   timeout_ms: number;
 }
@@ -52,11 +63,11 @@ export interface WaitToolResult {
 }
 
 export interface ReadArgs {
-  job_id?: string;
-  pane?: string;
+  job_id?: string | undefined;
+  pane?: string | undefined;
   since: 'last-read' | 'job' | 'screen';
   lines: number;
-  grep?: string;
+  grep?: string | undefined;
   context: number;
   max_bytes: number;
 }
@@ -71,43 +82,56 @@ export interface ReadResult {
 }
 
 export interface SendKeysArgs {
-  pane?: string;
-  job_id?: string;
-  text?: string;
-  keys?: string[];
+  pane?: string | undefined;
+  job_id?: string | undefined;
+  text?: string | undefined;
+  keys?: string[] | undefined;
   press_enter: boolean;
 }
 
+// Kept lean on purpose: every list_panes/status result persists in the agent's
+// context for the session. target/title/size were dropped — target is
+// reconstructable (`session:window`, pane id), the title duplicates name +
+// command, and size is cosmetic.
 export interface ListedPane {
   pane: string;
-  target: string;
-  title: string;
+  session: string;
+  window: string;
+  tab: string;
+  name: string | null;
   current_command: string;
-  size: string;
   managed: boolean;
+  description: string | null;
   job_id: string | null;
   job_status: JobStatus | null;
 }
 
-export interface KillArgs {
-  job_id?: string;
-  pane?: string;
-  mode: 'interrupt' | 'kill-pane';
+export interface StatusTab {
+  session: string;
+  window: string;
+  tab: string;
+  panes: ListedPane[];
+  running: number;
+  failed: number;
+  done: number;
 }
 
-function escapeSingleQuotes(value: string): string {
-  return value.replace(/'/g, "'\\''");
+export interface KillArgs {
+  job_id?: string | undefined;
+  pane?: string | undefined;
+  mode: 'interrupt' | 'kill-pane';
 }
 
 /**
  * Orchestrates the tmux client, job manager, pane allocator, and cursor
- * tracker behind the seven MCP tools. One instance per server process (stdio
+ * tracker behind the MCP tools. One instance per server process (stdio
  * transport = one server per agent session).
  */
 export class SidemuxService {
   readonly jobs: JobManager;
   readonly allocator: PaneAllocator;
   readonly cursor: CursorTracker;
+  private readonly stats = new StatsTracker();
   private readonly selfPane: string | null;
 
   constructor(
@@ -121,9 +145,59 @@ export class SidemuxService {
     this.cursor = new CursorTracker();
     this.selfPane = env.TMUX_PANE ?? null;
     this.defaultCwd = defaultCwd;
+    void this.allocator.ensureWorkspaceKeybinds().catch(() => undefined);
   }
 
   private readonly defaultCwd: string;
+  private readonly scriptsCache = new Map<
+    string,
+    { at: number; scripts: Map<string, ProjectScript> }
+  >();
+
+  /**
+   * Named scripts from a project's `.sidemux.toml`, re-read at most every
+   * couple of seconds so edits apply without restarting the server. Keyed by
+   * directory: a run with an explicit cwd resolves against THAT project's
+   * scripts, not the server's own.
+   */
+  private projectScripts(dir: string): Map<string, ProjectScript> {
+    const now = Date.now();
+    const cached = this.scriptsCache.get(dir);
+    if (cached && now - cached.at <= 2000) {
+      return cached.scripts;
+    }
+    const entry = { at: now, scripts: loadProjectScripts(dir) };
+    this.scriptsCache.set(dir, entry);
+    return entry.scripts;
+  }
+
+  /**
+   * Resolve `run { command: "lint" }` against the target project's `[scripts]`
+   * table (the run's cwd, falling back to the server's). A matching name
+   * substitutes the script's command (and background flag) and names the pane
+   * after the script; anything else passes through as raw shell — globs and
+   * arguments in script bodies are never reinterpreted.
+   */
+  private applyProjectScript(args: RunArgs): RunArgs {
+    const script = this.projectScripts(args.cwd ?? this.defaultCwd).get(args.command.trim());
+    if (!script) {return args;}
+    return {
+      ...args,
+      command: script.command,
+      name: args.name ?? script.name,
+      background: args.background || script.background,
+    };
+  }
+
+  private async ensureDashboardKeybind(): Promise<void> {
+    try {
+      await this.allocator.ensureWorkspaceKeybinds();
+    } catch {
+      // Keybind setup is a tmux UI affordance. Tool calls should still work
+      // when tmux is momentarily busy or the client is headless; later calls
+      // retry because PaneAllocator only marks successful installs.
+    }
+  }
 
   /**
    * Turn a `project` into a concrete (cwd, name) for a run. Without a project,
@@ -133,7 +207,7 @@ export class SidemuxService {
   private async resolveProjectTarget(
     args: RunArgs,
   ): Promise<{ cwd: string | undefined; name: string | undefined }> {
-    if (!args.project) return { cwd: args.cwd, name: args.name };
+    if (!args.project) {return { cwd: args.cwd, name: args.name };}
     const dir = await resolveProject(this.defaultCwd, args.project);
     if (!dir) {
       const names = [...(await listProjects(this.defaultCwd)).keys()].sort();
@@ -147,7 +221,9 @@ export class SidemuxService {
     return { cwd: args.cwd ?? dir, name: args.name ?? args.project };
   }
 
-  async run(args: RunArgs, onProgress?: (elapsedMs: number) => void): Promise<RunResult> {
+  async run(rawArgs: RunArgs, onProgress?: (elapsedMs: number) => void): Promise<RunResult> {
+    await this.ensureDashboardKeybind();
+    const args = this.applyProjectScript(rawArgs);
     // A `project` targets a monorepo package: run in its directory and give the
     // pane a stable name (the project) so package runs never share a pane. An
     // explicit cwd/name still wins over the resolved defaults.
@@ -158,8 +234,10 @@ export class SidemuxService {
       name: runName,
       cwd: runCwd,
       command: args.command,
+      description: args.description,
     });
     this.allocator.guardWrite(acquired.paneId);
+    const managedPane = await this.allocator.hasManagedPane(acquired.paneId);
 
     // cwd rule: created panes are already anchored via split-window -c.
     // For reused/explicit panes, cd first when a cwd applies and differs.
@@ -170,11 +248,29 @@ export class SidemuxService {
       acquired.currentPath !== targetCwd &&
       (runCwd !== undefined || this.allocator.isManaged(acquired.paneId));
     if (wantsCd) {
-      command = `cd '${escapeSingleQuotes(targetCwd)}' && ${command}`;
+      command = `cd ${shellQuote(targetCwd)} && ${command}`;
     }
 
-    const job = await this.jobs.launch(acquired.paneId, command, this.config.shell);
-    this.allocator.setBusy(acquired.paneId, true);
+    let job: Job;
+    try {
+      job = await this.jobs.launch(acquired.paneId, command, this.config.shell);
+    } catch (error) {
+      // acquire() claimed the pane (busy=1); a failed launch must release it
+      // or the pane stays unusable until this server exits.
+      if (managedPane) {await this.allocator.release(acquired.paneId);}
+      throw error;
+    }
+    if (managedPane) {
+      try {
+        await this.allocator.noteLaunch(acquired.paneId, {
+          name: this.allocator.managedName(acquired.paneId) ?? runName ?? acquired.paneId,
+          command: args.command,
+          paneClass: args.background ? 'persistent' : 'oneshot',
+        });
+      } catch (error) {
+        if (await this.client.paneExists(acquired.paneId)) {throw error;}
+      }
+    }
 
     if (args.background) {
       return {
@@ -194,11 +290,22 @@ export class SidemuxService {
         timeoutMs: args.timeout_ms,
         onProgress,
       });
-      if (job.status !== 'running') this.allocator.setBusy(job.paneId, false);
+      if (managedPane && job.status !== 'running') {
+        await this.allocator.noteFinished(job.paneId, job.exitCode);
+      }
 
       // Capture the tail *before* any teardown — the pane may be about to close.
-      const tail = (await this.jobTail(job)).text;
+      const shapedTail = await this.jobTail(
+        job,
+        job.status === 'done' && job.exitCode === 0 ? SUCCESS_TAIL_LINES : TAIL_LINES,
+      );
+      this.recordStats(args.command, job.paneId, shapedTail);
+      const tail = shapedTail.text;
       const closed = await this.maybeClose(args.close, job);
+      const trimmed =
+        managedPane && !closed && job.status !== 'running'
+          ? await this.allocator.trimIdlePanes(this.config.idlePaneTtlMs, job.paneId)
+          : [];
 
       return {
         job_id: job.jobId,
@@ -207,7 +314,7 @@ export class SidemuxService {
         exit_code: job.exitCode,
         duration_ms: result.elapsedMs,
         tail,
-        closed,
+        closed: closed || trimmed.includes(job.paneId),
       };
     } catch (error) {
       // The pane can vanish mid-run: a command that exits the shell (`exit`,
@@ -215,7 +322,7 @@ export class SidemuxService {
       // tmux then throws on the next capture. Only swallow that exact case —
       // report an unknown outcome and drop the dead pane from the registry so a
       // stale busy entry can't shadow a name or brick a later close_all.
-      if (await this.client.paneExists(job.paneId)) throw error;
+      if (await this.client.paneExists(job.paneId)) {throw error;}
       job.status = 'unknown';
       job.exitCode = null;
       await this.allocator.remove(job.paneId);
@@ -243,7 +350,7 @@ export class SidemuxService {
    */
   private async maybeClose(close: boolean | undefined, job: Job): Promise<boolean> {
     const wantClose = close ?? (this.config.closeOnSuccess && job.exitCode === 0);
-    if (!wantClose || job.status === 'running' || !this.allocator.isManaged(job.paneId)) {
+    if (!wantClose || job.status === 'running' || !(await this.allocator.hasManagedPane(job.paneId))) {
       return false;
     }
     await this.client.killPane(job.paneId);
@@ -270,9 +377,19 @@ export class SidemuxService {
       timeoutMs: args.timeout_ms,
       onProgress,
     });
-    if (job && job.status !== 'running') this.allocator.setBusy(paneId, false);
+    if (job && job.status !== 'running' && (await this.allocator.hasManagedPane(paneId))) {
+      await this.allocator.noteFinished(paneId, job.exitCode);
+    }
 
-    const tail = job ? await this.jobTail(job) : await this.screenTail(paneId);
+    const tail = job
+      ? await this.jobTail(
+          job,
+          result.status === 'exit' && job.exitCode === 0 ? SUCCESS_TAIL_LINES : TAIL_LINES,
+        )
+      : await this.screenTail(paneId);
+    if (job) {
+      this.recordStats(job.command, paneId, tail);
+    }
     return {
       status: result.status,
       exit_code: job?.exitCode ?? null,
@@ -295,7 +412,7 @@ export class SidemuxService {
     let cursorReset = false;
 
     if (args.since === 'job') {
-      if (!job) throw new Error("read since='job' needs a job_id (or a pane with a known job)");
+      if (!job) {throw new Error("read since='job' needs a job_id (or a pane with a known job)");}
       rawLines = await this.captureJobRegion(job);
     } else if (args.since === 'screen') {
       rawLines = await this.client.capturePane(paneId);
@@ -306,12 +423,17 @@ export class SidemuxService {
     }
 
     // A read may be the first thing to observe a finished job.
-    if (job && job.status === 'running') {
-      this.jobs.applyScan(job, rawLines);
-      if (job.status !== 'running') this.allocator.setBusy(paneId, false);
+    if (job?.status === 'running') {
+      const scanned = this.jobs.applyScan(job, rawLines);
+      if (scanned.status !== 'running' && (await this.allocator.hasManagedPane(paneId))) {
+        await this.allocator.noteFinished(paneId, scanned.exitCode);
+      }
     }
 
     const shaped = shapeOutput(scrubOutput(rawLines), shapeOptions);
+    if (job) {
+      this.recordStats(job.command, paneId, shaped);
+    }
     return {
       text: shaped.text,
       lines_returned: shaped.linesReturned,
@@ -329,37 +451,91 @@ export class SidemuxService {
     const { paneId } = await this.locate(args.job_id, args.pane);
     this.allocator.guardWrite(paneId);
 
-    if (args.text !== undefined) await this.client.sendLiteral(paneId, args.text);
-    if (args.keys && args.keys.length > 0) await this.client.sendKeys(paneId, args.keys);
-    if (args.press_enter) await this.client.sendKeys(paneId, ['Enter']);
+    if (args.text !== undefined) {await this.client.sendLiteral(paneId, args.text);}
+    if (args.keys && args.keys.length > 0) {await this.client.sendKeys(paneId, args.keys);}
+    if (args.press_enter) {await this.client.sendKeys(paneId, ['Enter']);}
     return { ok: true, pane: paneId };
   }
 
   async listPanes(all: boolean): Promise<ListedPane[]> {
+    await this.ensureDashboardKeybind();
     const panes = await this.client.listPanes();
     const selfSession = this.selfPane
       ? panes.find((p) => p.paneId === this.selfPane)?.target.split(':')[0]
       : undefined;
 
-    return panes
-      .filter((pane) => {
-        if (all) return true;
-        if (this.allocator.isManaged(pane.paneId) || pane.managed) return true;
-        return selfSession !== undefined && pane.target.startsWith(`${selfSession}:`);
-      })
-      .map((pane) => {
-        const job = this.jobs.findByPane(pane.paneId);
-        return {
-          pane: pane.paneId,
-          target: pane.target,
-          title: pane.title,
-          current_command: pane.currentCommand,
-          size: `${pane.width}x${pane.height}`,
-          managed: pane.managed || this.allocator.isManaged(pane.paneId),
-          job_id: job?.jobId ?? null,
-          job_status: job?.status ?? null,
-        };
+    const visible = panes.filter((pane) => {
+      if (all) {return true;}
+      if (this.allocator.isManaged(pane.paneId) || pane.managed) {return true;}
+      return selfSession !== undefined && pane.target.startsWith(`${selfSession}:`);
+    });
+    const listed: ListedPane[] = [];
+    for (const pane of visible) {
+      let job = this.jobs.findByPane(pane.paneId);
+      // status/list may be the first call to observe a finished job (a
+      // background run's sentinel lands with nobody reading the pane), so
+      // running jobs get a sentinel scan here — same as read/wait do.
+      if (job?.status === 'running') {
+        job = await this.refreshRunningJob(job);
+      }
+      listed.push({
+        pane: pane.paneId,
+        session: pane.sessionName,
+        window: pane.windowIndex,
+        tab: pane.windowName,
+        name: pane.managedName,
+        current_command: pane.currentCommand,
+        managed: pane.managed,
+        description: pane.description,
+        job_id: job?.jobId ?? null,
+        job_status: job?.status ?? null,
       });
+    }
+    return listed;
+  }
+
+  /**
+   * Scan a running job's pane tail for its exit sentinel and settle the job
+   * (and the pane's busy/exit metadata) when found. Best-effort: a vanished
+   * pane leaves the job as-is for read/wait to reconcile.
+   */
+  private async refreshRunningJob(job: Job): Promise<Job> {
+    try {
+      const lines = await this.client.capturePane(job.paneId, -100);
+      const scanned = this.jobs.applyScan(job, lines);
+      if (scanned.status !== 'running' && (await this.allocator.hasManagedPane(job.paneId))) {
+        await this.allocator.noteFinished(job.paneId, scanned.exitCode);
+      }
+      return scanned;
+    } catch {
+      return job;
+    }
+  }
+
+  async status(): Promise<{ tabs: StatusTab[] }> {
+    const panes = await this.listPanes(false);
+    const tabs = new Map<string, StatusTab>();
+    for (const pane of panes.filter((p) => p.managed)) {
+      const key = `${pane.session}:${pane.window}`;
+      let tab = tabs.get(key);
+      if (!tab) {
+        tab = {
+          session: pane.session,
+          window: pane.window,
+          tab: pane.tab,
+          panes: [],
+          running: 0,
+          failed: 0,
+          done: 0,
+        };
+        tabs.set(key, tab);
+      }
+      tab.panes.push(pane);
+      if (pane.job_status === 'running') {tab.running += 1;}
+      else if (pane.job_status === 'failed') {tab.failed += 1;}
+      else if (pane.job_status === 'done') {tab.done += 1;}
+    }
+    return { tabs: [...tabs.values()] };
   }
 
   async kill(args: KillArgs): Promise<{ ok: true; pane: string; mode: string }> {
@@ -367,7 +543,7 @@ export class SidemuxService {
     this.allocator.guardWrite(paneId);
 
     if (args.mode === 'kill-pane') {
-      if (!this.allocator.isManaged(paneId)) {
+      if (!(await this.allocator.hasManagedPane(paneId))) {
         throw new Error(
           `kill-pane refused: ${paneId} was not created by sidemux — ` +
             'use mode=interrupt to Ctrl-C it instead',
@@ -378,8 +554,9 @@ export class SidemuxService {
       this.cursor.forget(paneId);
     } else {
       await this.client.sendKeys(paneId, ['C-c']);
-      if (job) this.jobs.markInterrupted(job);
-      this.allocator.setBusy(paneId, false);
+      if (job) {this.jobs.markInterrupted(job);}
+      if (job) {await this.allocator.noteFinished(paneId, job.exitCode);}
+      else if (await this.allocator.hasManagedPane(paneId)) {await this.allocator.setBusy(paneId, false);}
     }
     return { ok: true, pane: paneId, mode: args.mode };
   }
@@ -392,9 +569,9 @@ export class SidemuxService {
    */
   async closeAll(): Promise<{ closed: string[]; count: number }> {
     const closed: string[] = [];
-    for (const paneId of this.allocator.managedPaneIds()) {
+    for (const paneId of await this.allocator.managedPaneIds()) {
       const job = this.jobs.findByPane(paneId);
-      if (job && job.status === 'running') this.jobs.markInterrupted(job);
+      if (job?.status === 'running') {this.jobs.markInterrupted(job);}
       try {
         await this.client.killPane(paneId);
       } catch {
@@ -408,6 +585,17 @@ export class SidemuxService {
     return { closed, count: closed.length };
   }
 
+  /**
+   * Count one agent-facing tail response toward the workspace token-savings
+   * stats (full region vs returned tail) and mirror the running totals onto
+   * the agent's window for the dashboard. Fire-and-forget: a tmux hiccup here
+   * must never fail the run/read that produced the output.
+   */
+  private recordStats(command: string, paneId: string, shaped: ShapedOutput): void {
+    this.stats.record(command, shaped.bytesTotal, shaped.bytesReturned);
+    void this.allocator.publishStats(paneId, this.stats.encoded()).catch(() => undefined);
+  }
+
   /** Resolve job_id and/or pane into a concrete job + pane id. */
   private async locate(
     jobId?: string,
@@ -415,7 +603,7 @@ export class SidemuxService {
   ): Promise<{ job: Job | null; paneId: string }> {
     if (jobId) {
       const job = this.jobs.get(jobId);
-      if (!job) throw new Error(`unknown job_id: ${jobId}`);
+      if (!job) {throw new Error(`unknown job_id: ${jobId}`);}
       return { job, paneId: job.paneId };
     }
     if (pane) {
@@ -428,16 +616,13 @@ export class SidemuxService {
   /** Everything the job printed (echo line included, sentinel stripped). */
   private async captureJobRegion(job: Job): Promise<string[]> {
     const state = await this.client.paneState(job.paneId);
-    const start = Math.max(
-      -state.historySize,
-      job.baselineLines - 1 - state.historySize,
-    );
+    const start = clampCaptureStart(state, job.baselineLines - 1 - state.historySize);
     return this.client.capturePane(job.paneId, start, state.cursorY);
   }
 
-  private async jobTail(job: Job): Promise<ShapedOutput> {
+  private async jobTail(job: Job, tailLines = TAIL_LINES): Promise<ShapedOutput> {
     const lines = await this.captureJobRegion(job);
-    return shapeOutput(scrubOutput(lines), { lines: TAIL_LINES, maxBytes: TAIL_BYTES });
+    return shapeOutput(scrubOutput(lines), { lines: tailLines, maxBytes: TAIL_BYTES });
   }
 
   private async screenTail(paneId: string): Promise<ShapedOutput> {

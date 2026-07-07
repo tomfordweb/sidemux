@@ -12,7 +12,8 @@ function mockRunner(stdout = ''): { run: TmuxRunner; calls: string[][] } {
 }
 
 const PANE_LIST =
-  '%3\tmain:1.2\tzsh\tzsh\t200x50\n' + '%0\tmain:1.0\tzsh\tzsh\t200x50\n';
+  '%3\tmain:1.2\tmain\t1\t2\tcode\tzsh\tzsh\t200x50\t@1\t\t\t\t\t\t\t\t\n' +
+  '%0\tmain:1.0\tmain\t1\t0\tcode\tzsh\tzsh\t200x50\t@1\t\t\t\t\t\t\t\t\n';
 
 describe('TmuxClient argument construction', () => {
   test('resolveTarget matches session:window.pane against list-panes', async () => {
@@ -73,7 +74,7 @@ describe('TmuxClient argument construction', () => {
     expect(id).toBe('%9');
     expect(calls[0]).toEqual([
       'split-window', '-d', '-P', '-F', '#{pane_id}', '-l', '30%',
-      '-c', '/home/tom/project', '-v', '-t', '%0',
+      '-c', '/home/tom/project', '-e', 'NX_TUI=false', '-v', '-t', '%0',
     ]);
   });
 
@@ -87,18 +88,6 @@ describe('TmuxClient argument construction', () => {
     expect(await dirFlags('left')).toEqual(['-h', '-b']);
     expect(await dirFlags('bottom')).toEqual(['-v']);
     expect(await dirFlags('top')).toEqual(['-v', '-b']);
-  });
-
-  test('splitWindow adds -f only when full is set (full-span bar)', async () => {
-    const { run: run1, calls: c1 } = mockRunner('%9\n');
-    await new TmuxClient(run1).splitWindow('/wd', '%0', '30%', undefined, 'bottom', true);
-    expect(c1[0]).toContain('-f');
-    // -f precedes the target so it applies to the split, not left dangling
-    expect(c1[0]!.indexOf('-f')).toBeLessThan(c1[0]!.indexOf('-t'));
-
-    const { run: run2, calls: c2 } = mockRunner('%9\n');
-    await new TmuxClient(run2).splitWindow('/wd', '%0', '30%', undefined, 'bottom');
-    expect(c2[0]).not.toContain('-f');
   });
 
   test('paneWindow queries the window id of a pane', async () => {
@@ -121,25 +110,41 @@ describe('TmuxClient argument construction', () => {
     const { run: r1, calls: c1 } = mockRunner('%20\n');
     await new TmuxClient(r1).newWindow('0', '/wd', 'sh', 'smux');
     expect(c1[0]).toEqual([
-      'new-window', '-d', '-P', '-F', '#{pane_id}', '-n', 'smux', '-t', '0', '-c', '/wd', 'sh',
+      'new-window', '-d', '-P', '-F', '#{pane_id}', '-e', 'NX_TUI=false',
+      '-n', 'smux', '-t', '0', '-c', '/wd', 'sh',
     ]);
     const { run: r2, calls: c2 } = mockRunner('%21\n');
     await new TmuxClient(r2).newWindow('smux', '/wd');
     expect(c2[0]).not.toContain('-n');
   });
 
-  test('attachedSession returns the most-recently-active client session, else null', async () => {
-    const many = mockRunner('100\t0\n250\twork\n');
-    expect(await new TmuxClient(many.run).attachedSession()).toBe('work');
-    expect(many.calls[0]).toEqual(['list-clients', '-F', '#{client_activity}\t#{client_session}']);
+  test('updatePane batches title + option writes into one invocation', async () => {
+    const { run, calls } = mockRunner();
+    const client = new TmuxClient(run);
+    await client.updatePane('%7', 'smux:build', [
+      { name: '@smux_managed', value: '1' },
+      { name: '@smux_last_exit_code', value: null },
+    ]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toEqual([
+      'select-pane', '-t', '%7', '-T', 'smux:build',
+      ';', 'set-option', '-p', '-t', '%7', '@smux_managed', '1',
+      ';', 'set-option', '-p', '-u', '-t', '%7', '@smux_last_exit_code',
+    ]);
+  });
 
-    const none = mockRunner('');
-    expect(await new TmuxClient(none.run).attachedSession()).toBeNull();
-
-    const throws: TmuxRunner = async () => {
-      throw new Error('no server running');
-    };
-    expect(await new TmuxClient(throws).attachedSession()).toBeNull();
+  test('setWindowOptions batches window option writes into one invocation', async () => {
+    const { run, calls } = mockRunner();
+    const client = new TmuxClient(run);
+    await client.setWindowOptions('@3', [
+      { name: '@smux_agent_id', value: 'agent-1' },
+      { name: '@smux_server_pid', value: '123' },
+    ]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toEqual([
+      'set-option', '-w', '-t', '@3', '@smux_agent_id', 'agent-1',
+      ';', 'set-option', '-w', '-t', '@3', '@smux_server_pid', '123',
+    ]);
   });
 
   test('newSession passes -c cwd and fixed size', async () => {
@@ -149,6 +154,38 @@ describe('TmuxClient argument construction', () => {
     expect(calls[0]).toContain('-c');
     expect(calls[0]![calls[0]!.indexOf('-c') + 1]).toBe('/tmp/wd');
     expect(calls[0]).toContain('new-session');
+  });
+
+  test('newSession names the first window when requested', async () => {
+    const { run, calls } = mockRunner('%0\n');
+    await new TmuxClient(run).newSession('smux', '/tmp/wd', undefined, 'main');
+    expect(calls[0]).toContain('-n');
+    expect(calls[0]![calls[0]!.indexOf('-n') + 1]).toBe('main');
+  });
+
+  test('listWindows scopes to an exact session when provided', async () => {
+    const { run, calls } = mockRunner('smux\t0\t@1\tmain\t%1\tagent-1\t123\t456\t\n');
+    const windows = await new TmuxClient(run).listWindows('smux');
+    expect(calls[0]).toEqual([
+      'list-windows',
+      '-F',
+      '#{session_name}\t#{window_index}\t#{window_id}\t#{window_name}\t#{pane_id}\t#{@smux_agent_id}\t#{@smux_server_pid}\t#{@smux_last_seen_at}\t#{@smux_stats}',
+      '-t',
+      '=smux',
+    ]);
+    expect(windows).toEqual([
+      {
+        sessionName: 'smux',
+        windowIndex: '0',
+        windowId: '@1',
+        windowName: 'main',
+        activePaneId: '%1',
+        agentId: 'agent-1',
+        serverPid: 123,
+        lastSeenAt: 456,
+        statsJson: null,
+      },
+    ]);
   });
 
   test('paneExists returns false when runner throws', async () => {
@@ -164,5 +201,21 @@ describe('TmuxClient argument construction', () => {
     const client = new TmuxClient(run);
     await client.hasSession('smux');
     expect(calls[0]).toEqual(['has-session', '-t', '=smux']);
+  });
+
+  test('selectPane and zoomPane target the pane id directly', async () => {
+    const { run, calls } = mockRunner();
+    const client = new TmuxClient(run);
+    await client.selectPane('%7');
+    await client.zoomPane('%7');
+    expect(calls[0]).toEqual(['select-pane', '-t', '%7']);
+    expect(calls[1]).toEqual(['resize-pane', '-Z', '-t', '%7']);
+  });
+
+  test('switchClient targets exactly what caller passes', async () => {
+    const { run, calls } = mockRunner();
+    const client = new TmuxClient(run);
+    await client.switchClient('@4');
+    expect(calls[0]).toEqual(['switch-client', '-t', '@4']);
   });
 });

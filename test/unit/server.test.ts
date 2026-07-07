@@ -34,15 +34,30 @@ function stubService(): SidemuxService {
     listPanes: vi.fn(async () => [
       {
         pane: '%7',
-        target: 'main:1.1',
-        title: 'smux:build',
+        session: 'main',
+        window: '1',
+        tab: '* build',
+        name: 'build',
         current_command: 'node',
-        size: '200x15',
         managed: true,
+        description: 'build gate',
         job_id: 'jabc123',
         job_status: 'running' as const,
       },
     ]),
+    status: vi.fn(async () => ({
+      tabs: [
+        {
+          session: 'main',
+          window: '1',
+          tab: '* build',
+          running: 1,
+          failed: 0,
+          done: 0,
+          panes: [],
+        },
+      ],
+    })),
     kill: vi.fn(async () => ({ ok: true as const, pane: '%7', mode: 'interrupt' })),
     closeAll: vi.fn(async () => ({ closed: ['%7', '%8'], count: 2 })),
   } as unknown as SidemuxService;
@@ -65,7 +80,7 @@ describe('buildServer', () => {
     client = await connect(service);
   });
 
-  test('registers the seven tools with teaching descriptions', async () => {
+  test('registers the tools with teaching descriptions', async () => {
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
       'close_all',
@@ -74,6 +89,7 @@ describe('buildServer', () => {
       'read',
       'run',
       'send_keys',
+      'status',
       'wait',
     ]);
     for (const tool of tools) {
@@ -82,10 +98,18 @@ describe('buildServer', () => {
     }
   });
 
+  test('status reports grouped workspace tabs', async () => {
+    const result = await client.callTool({ name: 'status', arguments: {} });
+    expect(service.status).toHaveBeenCalled();
+    expect(result.structuredContent).toMatchObject({
+      tabs: [{ session: 'main', window: '1', running: 1 }],
+    });
+  });
+
   test('run applies schema defaults and returns structured + text content', async () => {
     const result = await client.callTool({
       name: 'run',
-      arguments: { command: 'echo hi' },
+      arguments: { command: 'echo hi', description: 'echo probe' },
     });
     expect(service.run).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -97,7 +121,7 @@ describe('buildServer', () => {
       undefined,
     );
     expect(result.structuredContent).toMatchObject({ job_id: 'jabc123', status: 'done', closed: false });
-    const text = (result.content as Array<{ text: string }>)[0]!.text;
+    const text = (result.content as { text: string }[])[0]!.text;
     expect(text).toContain('done');
     expect(text).toContain('jabc123');
   });
@@ -112,12 +136,30 @@ describe('buildServer', () => {
       tail: '',
       closed: false,
     });
-    const result = await client.callTool({ name: 'run', arguments: { command: 'make' } });
-    expect((result.content as Array<{ text: string }>)[0]!.text).toContain('call wait');
+    const result = await client.callTool({ name: 'run', arguments: { command: 'make', description: 'build gate' } });
+    expect((result.content as { text: string }[])[0]!.text).toContain('call wait');
+  });
+
+  test('run without a description is rejected by the schema', async () => {
+    const result = await client.callTool({ name: 'run', arguments: { command: 'echo hi' } });
+    expect(result.isError).toBe(true);
+    expect((result.content as { text: string }[])[0]!.text).toContain('description');
+    expect(service.run).not.toHaveBeenCalled();
+  });
+
+  test('run forwards the description to the service', async () => {
+    await client.callTool({
+      name: 'run',
+      arguments: { command: 'pnpm lint', description: 'lint gate before release' },
+    });
+    expect(service.run).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'pnpm lint', description: 'lint gate before release' }),
+      undefined,
+    );
   });
 
   test('run forwards close=true to the service', async () => {
-    await client.callTool({ name: 'run', arguments: { command: 'pnpm test', close: true } });
+    await client.callTool({ name: 'run', arguments: { command: 'pnpm test', description: 'test gate', close: true } });
     expect(service.run).toHaveBeenCalledWith(
       expect.objectContaining({ command: 'pnpm test', close: true }),
       undefined,
@@ -133,7 +175,7 @@ describe('buildServer', () => {
       expect.objectContaining({ until: 'pattern', pattern: 'ready', timeout_ms: 120_000 }),
       undefined,
     );
-    expect((result.content as Array<{ text: string }>)[0]!.text).toContain('ready on 3000');
+    expect((result.content as { text: string }[])[0]!.text).toContain('ready on 3000');
   });
 
   test('read defaults to incremental last-read', async () => {
@@ -163,11 +205,11 @@ describe('buildServer', () => {
     const result = await client.callTool({ name: 'close_all', arguments: {} });
     expect(service.closeAll).toHaveBeenCalled();
     expect(result.structuredContent).toMatchObject({ closed: ['%7', '%8'], count: 2 });
-    expect((result.content as Array<{ text: string }>)[0]!.text).toContain('closed 2 pane(s)');
+    expect((result.content as { text: string }[])[0]!.text).toContain('closed 2 pane(s)');
   });
 
   test('run forwards project to the service', async () => {
-    await client.callTool({ name: 'run', arguments: { command: 'pnpm test', project: 'bevvi' } });
+    await client.callTool({ name: 'run', arguments: { command: 'pnpm test', description: 'test gate', project: 'bevvi' } });
     expect(service.run).toHaveBeenCalledWith(
       expect.objectContaining({ command: 'pnpm test', project: 'bevvi' }),
       undefined,
@@ -178,9 +220,9 @@ describe('buildServer', () => {
     (service.run as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new Error('refusing to write'),
     );
-    const result = await client.callTool({ name: 'run', arguments: { command: 'x' } });
+    const result = await client.callTool({ name: 'run', arguments: { command: 'x', description: 'error probe' } });
     expect(result.isError).toBe(true);
-    expect((result.content as Array<{ text: string }>)[0]!.text).toContain('refusing to write');
+    expect((result.content as { text: string }[])[0]!.text).toContain('refusing to write');
   });
 
   test('progress token wires a reporter through to the service', async () => {

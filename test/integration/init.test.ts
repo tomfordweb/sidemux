@@ -95,7 +95,7 @@ describe('sidemux init', () => {
       const blocked = runGuard(dir, 'pnpm test --coverage');
       expect(blocked.status).toBe(2);
       expect(blocked.stderr).toContain('Delegate');
-      expect(blocked.stderr).toContain('run { command: "pnpm test" }');
+      expect(blocked.stderr).toContain('run { command: "pnpm test", description: "<why>" }');
 
       const allowed = runGuard(dir, 'ls -la');
       expect(allowed.status).toBe(0);
@@ -138,21 +138,6 @@ describe('sidemux init', () => {
     expect(text()).toContain('the sidemux entry in .mcp.json');
   });
 
-  test('--mcp with --layout/--pane-size writes them into the server env', async () => {
-    const { io } = fakeIo();
-    const code = await runInit({
-      cwd: dir,
-      argv: ['--yes', '--mcp', '--layout', 'right', '--pane-size', '40%'],
-      io,
-    });
-    expect(code).toBe(0);
-    const mcp = JSON.parse(await readFile(join(dir, '.mcp.json'), 'utf8'));
-    expect(mcp.mcpServers.sidemux.env).toEqual({
-      SIDEMUX_LAYOUT: 'right',
-      SIDEMUX_PANE_SIZE: '40%',
-    });
-  });
-
   test('--mcp --close-on-success writes SIDEMUX_CLOSE_ON_SUCCESS into the env', async () => {
     const { io } = fakeIo();
     await runInit({ cwd: dir, argv: ['--yes', '--mcp', '--close-on-success'], io });
@@ -160,24 +145,16 @@ describe('sidemux init', () => {
     expect(mcp.mcpServers.sidemux.env).toEqual({ SIDEMUX_CLOSE_ON_SUCCESS: '1' });
   });
 
-  test('--mcp --yes with no layout flags leaves env empty (runtime defaults)', async () => {
+  test('--mcp --yes with no extra flags leaves env empty (runtime defaults)', async () => {
     const { io } = fakeIo();
     await runInit({ cwd: dir, argv: ['--yes', '--mcp'], io });
     const mcp = JSON.parse(await readFile(join(dir, '.mcp.json'), 'utf8'));
     expect(mcp.mcpServers.sidemux.env).toEqual({});
   });
 
-  test('--mcp ignores an invalid --layout and warns', async () => {
-    const { io, text } = fakeIo();
-    await runInit({ cwd: dir, argv: ['--yes', '--mcp', '--layout', 'sideways'], io });
-    const mcp = JSON.parse(await readFile(join(dir, '.mcp.json'), 'utf8'));
-    expect(mcp.mcpServers.sidemux.env).toEqual({});
-    expect(text()).toContain('ignoring --layout "sideways"');
-  });
-
   test('--sync --yes refreshes artifacts, keeps the recorded selection, lists new candidates', async () => {
     const { io, text } = fakeIo();
-    await runInit({ cwd: dir, argv: ['--commands', 'pnpm test', '--mcp', '--layout', 'right'], io });
+    await runInit({ cwd: dir, argv: ['--commands', 'pnpm test', '--mcp', '--close-on-success'], io });
 
     // Simulate a stale install: clobber the guard, drop the directive block.
     await writeFile(join(dir, '.sidemux', 'delegate-guard.mjs'), '// stale\n');
@@ -199,10 +176,10 @@ describe('sidemux init', () => {
     expect(text()).toContain('new candidates detected but not delegated');
     expect(text()).toContain('pnpm build');
 
-    // Directive block restored; MCP env (layout choice) untouched.
+    // Directive block restored; MCP env (recorded opt-ins) untouched.
     expect(await readFile(join(dir, 'CLAUDE.md'), 'utf8')).toContain('BEGIN sidemux-delegate');
     const mcp = JSON.parse(await readFile(join(dir, '.mcp.json'), 'utf8'));
-    expect(mcp.mcpServers.sidemux.env).toEqual({ SIDEMUX_LAYOUT: 'right' });
+    expect(mcp.mcpServers.sidemux.env).toEqual({ SIDEMUX_CLOSE_ON_SUCCESS: '1' });
   });
 
   test('interactive --sync asks about commands detected since the last init', async () => {
@@ -295,8 +272,10 @@ describe('sidemux init (non-JS projects)', () => {
   });
 
   async function delegated(): Promise<string[]> {
-    const delegate = JSON.parse(await readFile(join(dir, '.sidemux', 'delegate.json'), 'utf8'));
-    return delegate.commands.map((c: { command: string }) => c.command);
+    const delegate = JSON.parse(
+      await readFile(join(dir, '.sidemux', 'delegate.json'), 'utf8'),
+    ) as { commands: { command: string }[] };
+    return delegate.commands.map((c) => c.command);
   }
 
   test('Python: pyproject.toml + uv.lock delegates uv run commands', async () => {

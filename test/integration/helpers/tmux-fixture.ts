@@ -51,7 +51,7 @@ export class TmuxFixture {
   async until(predicate: () => Promise<boolean>, timeoutMs = 10_000): Promise<void> {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-      if (await predicate()) return;
+      if (await predicate()) {return;}
       await new Promise((r) => setTimeout(r, 100));
     }
     throw new Error('fixture: condition not met within timeout');

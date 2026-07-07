@@ -28,11 +28,13 @@ examples:
    `list-panes` and errors out instead.
 3. **`SIDEMUX_MANAGED_ONLY=1` (opt-in).** Restricts all write operations to
    panes sidemux created. Reads stay unrestricted. Recommended for untrusted
-   or highly autonomous workloads.
+   or highly autonomous workloads. To enable it everywhere without per-project
+   env blocks, set `managed_only = true` in `~/.config/sidemux/config.toml`
+   (see [configuration.md](./configuration.md)).
 4. **`kill-pane` / `close_all` scope.** Destroying panes only works on
    sidemux-created panes, regardless of mode. `close_all` is the same story in
-   bulk — it only ever destroys panes sidemux created, so the agent's own pane
-   and the user's shells (never in its registry) are untouched. Foreign panes
+   bulk — it only ever destroys panes marked as sidemux-managed, so the
+   agent's own pane and the user's shells are untouched. Foreign panes
    can only be sent Ctrl-C — and only when the managed-only guard allows writes
    at all.
 
@@ -47,7 +49,8 @@ enforce: its write tools are exactly four (`run`, `send_keys`, `kill`,
 ## Recommendations
 
 - Run agents in their own tmux window and keep personal shells in another
-  session, or enable `SIDEMUX_MANAGED_ONLY=1`.
+  session, or enable `SIDEMUX_MANAGED_ONLY=1` (env var, or `managed_only` in
+  the global config file).
 - Don't auto-approve `send_keys` if you keep sensitive interactive sessions
   (ssh, database consoles) in the same tmux server.
 - Remember that pane content returned by `read` enters the agent's context —

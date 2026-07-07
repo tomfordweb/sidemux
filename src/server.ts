@@ -4,13 +4,13 @@ import type { SidemuxService } from './service.js';
 
 const VERSION = '0.1.0';
 
-type Extra = {
+interface Extra {
   _meta?: { progressToken?: string | number };
   sendNotification: (notification: {
     method: 'notifications/progress';
     params: { progressToken: string | number; progress: number };
   }) => Promise<void>;
-};
+}
 
 /**
  * Wire a progress reporter so MCP clients with long tool timeouts see
@@ -18,7 +18,7 @@ type Extra = {
  */
 function progressReporter(extra: Extra): ((elapsedMs: number) => void) | undefined {
   const token = extra._meta?.progressToken;
-  if (token === undefined) return undefined;
+  if (token === undefined) {return undefined;}
   return (elapsedMs) => {
     void extra
       .sendNotification({
@@ -43,6 +43,21 @@ const paneField = z
     'Target pane: tmux pane id ("%5"), tmux target ("session:1.2"), or the name of a pane sidemux created',
   );
 
+/** Shared shape of one listed pane — used by list_panes and status outputs.
+ *  Lean on purpose: these results persist in the agent's context all session. */
+const listedPaneSchema = z.object({
+  pane: z.string(),
+  session: z.string(),
+  window: z.string(),
+  tab: z.string(),
+  name: z.string().nullable(),
+  current_command: z.string(),
+  managed: z.boolean(),
+  description: z.string().nullable(),
+  job_id: z.string().nullable(),
+  job_status: z.enum(['running', 'done', 'failed', 'unknown']).nullable(),
+});
+
 export function buildServer(service: SidemuxService): McpServer {
   const server = new McpServer({ name: 'sidemux', version: VERSION });
 
@@ -58,6 +73,13 @@ export function buildServer(service: SidemuxService): McpServer {
         'only read more on failure. Use background=true for dev servers and watchers.',
       inputSchema: {
         command: z.string().describe('Shell command to run'),
+        description: z
+          .string()
+          .min(1)
+          .describe(
+            'Why this command runs — e.g. "typecheck gate before release" or "run scripts ' +
+              'at user request". Shown in the pane header and dashboard.',
+          ),
         pane: paneField,
         name: z
           .string()
@@ -94,7 +116,7 @@ export function buildServer(service: SidemuxService): McpServer {
         status: z.enum(['running', 'done', 'failed', 'unknown']),
         exit_code: z.number().nullable(),
         duration_ms: z.number(),
-        tail: z.string(),
+        tail: z.string().optional().describe('Omitted — the text content carries the tail'),
         closed: z.boolean(),
       },
     },
@@ -104,7 +126,10 @@ export function buildServer(service: SidemuxService): McpServer {
         result.status === 'running'
           ? `[${result.job_id}] still running in ${result.pane} — call wait with this job_id`
           : `[${result.job_id}] ${result.status} (exit ${result.exit_code}) in ${result.duration_ms}ms\n${result.tail}`;
-      return toResult({ ...result }, summary);
+      // The tail lives in the text summary only: duplicating it in
+      // structuredContent doubles what the client keeps in context.
+      const { tail: _tail, ...structured } = result;
+      return toResult(structured, summary);
     },
   );
 
@@ -138,7 +163,7 @@ export function buildServer(service: SidemuxService): McpServer {
         exit_code: z.number().nullable(),
         matched_line: z.string().nullable(),
         elapsed_ms: z.number(),
-        tail: z.string(),
+        tail: z.string().optional().describe('Omitted — the text content carries the tail'),
       },
     },
     async (args, extra) => {
@@ -149,7 +174,8 @@ export function buildServer(service: SidemuxService): McpServer {
           : result.status === 'exit'
             ? `exit ${result.exit_code}`
             : result.status;
-      return toResult({ ...result }, `${head} after ${result.elapsed_ms}ms\n${result.tail}`);
+      const { tail: _tail, ...structured } = result;
+      return toResult(structured, `${head} after ${result.elapsed_ms}ms\n${result.tail}`);
     },
   );
 
@@ -172,7 +198,7 @@ export function buildServer(service: SidemuxService): McpServer {
         max_bytes: z.number().int().positive().max(65_536).default(8192),
       },
       outputSchema: {
-        text: z.string(),
+        text: z.string().optional().describe('Omitted — the text content carries the output'),
         lines_returned: z.number(),
         truncated: z.boolean(),
         cursor_reset: z.boolean(),
@@ -189,8 +215,9 @@ export function buildServer(service: SidemuxService): McpServer {
       ]
         .filter(Boolean)
         .join(', ');
+      const { text: _text, ...structured } = result;
       return toResult(
-        { ...result },
+        structured,
         `${result.lines_returned} lines${notes ? ` (${notes})` : ''}\n${result.text}`,
       );
     },
@@ -231,18 +258,7 @@ export function buildServer(service: SidemuxService): McpServer {
         all: z.boolean().default(false),
       },
       outputSchema: {
-        panes: z.array(
-          z.object({
-            pane: z.string(),
-            target: z.string(),
-            title: z.string(),
-            current_command: z.string(),
-            size: z.string(),
-            managed: z.boolean(),
-            job_id: z.string().nullable(),
-            job_status: z.enum(['running', 'done', 'failed', 'unknown']).nullable(),
-          }),
-        ),
+        panes: z.array(listedPaneSchema),
       },
     },
     async (args) => {
@@ -253,11 +269,51 @@ export function buildServer(service: SidemuxService): McpServer {
           : panes
               .map(
                 (p) =>
-                  `${p.pane} ${p.target} ${p.title || p.current_command}` +
+                  `${p.pane} ${p.name ?? p.current_command}` +
+                  ` (${p.session}:${p.window} ${p.tab})` +
+                  (p.description ? ` — ${p.description}` : '') +
                   (p.job_id ? ` [${p.job_id}: ${p.job_status}]` : ''),
               )
               .join('\n');
       return toResult({ panes }, summary);
+    },
+  );
+
+  server.registerTool(
+    'status',
+    {
+      title: 'Summarize sidemux workspace status',
+      description:
+        'Return a compact status summary grouped by sidemux tab/window. This is the ' +
+        'agent-readable equivalent of the passive workspace status view.',
+      inputSchema: {},
+      outputSchema: {
+        tabs: z.array(
+          z.object({
+            session: z.string(),
+            window: z.string(),
+            tab: z.string(),
+            running: z.number(),
+            failed: z.number(),
+            done: z.number(),
+            panes: z.array(listedPaneSchema),
+          }),
+        ),
+      },
+    },
+    async () => {
+      const result = await service.status();
+      const summary =
+        result.tabs.length === 0
+          ? 'no sidemux tabs'
+          : result.tabs
+              .map(
+                (tab) =>
+                  `${tab.session}:${tab.window} ${tab.tab} ` +
+                  `running=${tab.running} failed=${tab.failed} done=${tab.done}`,
+              )
+              .join('\n');
+      return toResult({ ...result }, summary);
     },
   );
 
@@ -287,7 +343,7 @@ export function buildServer(service: SidemuxService): McpServer {
     {
       title: 'Close all sidemux panes',
       description:
-        'Destroy every pane sidemux created this session (kill-pane on each), including ' +
+        'Destroy every live pane marked as sidemux-managed (kill-pane on each), including ' +
         'ones with a command still running. Leaves your own editor/shell panes untouched. ' +
         'Use to tidy up sidecar panes in one call when you are done.',
       inputSchema: {},

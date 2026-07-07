@@ -48,8 +48,8 @@ async function main() {
 
   const entry = commands.find((c) => c.command === hit) || {};
   const suggestion = entry.longRunning
-    ? 'run { command: ' + JSON.stringify(hit) + ', background: true }  (then wait { until: "pattern", … })'
-    : 'run { command: ' + JSON.stringify(hit) + ' }';
+    ? 'run { command: ' + JSON.stringify(hit) + ', description: "<why>", background: true }  (then wait { until: "pattern", … })'
+    : 'run { command: ' + JSON.stringify(hit) + ', description: "<why>" }';
   process.stderr.write(
     '[sidemux] Delegate "' + hit + '" to a tmux pane instead of running it inline.\n' +
     'Use the sidemux MCP tool:\n  ' + suggestion + '\n' +

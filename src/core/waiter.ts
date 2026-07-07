@@ -3,18 +3,19 @@ import { isKnownShell } from '../config.js';
 import type { TmuxClient } from '../tmux/client.js';
 import type { Job } from '../types.js';
 import { JobManager, SENTINEL_MARKER } from './jobs.js';
+import { clampCaptureStart, totalLines } from './shared.js';
 
 export type WaitUntil = 'exit' | 'pattern' | 'idle';
 
 export interface WaitOptions {
   until: WaitUntil;
   /** Regex source, required when until = 'pattern'. */
-  pattern?: string;
+  pattern?: string | undefined;
   /** Stability window for until = 'idle'. */
-  idleMs?: number;
-  timeoutMs?: number;
+  idleMs?: number | undefined;
+  timeoutMs?: number | undefined;
   /** Called every ~10s of waiting; hook for MCP progress notifications. */
-  onProgress?: (elapsedMs: number) => void;
+  onProgress?: ((elapsedMs: number) => void) | undefined;
 }
 
 export interface WaitResult {
@@ -55,6 +56,7 @@ export async function waitFor(
   if (until === 'exit' && !job) {
     throw new Error("wait: until = 'exit' requires a job (launch via run first)");
   }
+  const exitJob = job;
 
   const startedAt = Date.now();
   let pollMs = POLL_INITIAL_MS;
@@ -77,31 +79,30 @@ export async function waitFor(
     }
 
     const state = await client.paneState(paneId);
-    const currentTotal = state.historySize + state.cursorY + 1;
+    const currentTotal = totalLines(state);
 
     if (until === 'exit') {
-      const scanStart = Math.max(-state.historySize, state.cursorY - SENTINEL_SCAN_LINES + 1);
+      const scanStart = clampCaptureStart(state, state.cursorY - SENTINEL_SCAN_LINES + 1);
       const tail = await client.capturePane(paneId, scanStart, state.cursorY);
-      jobs.applyScan(job!, tail);
-      if (job!.status !== 'running') {
+      if (!exitJob) {throw new Error("wait: until = 'exit' requires a job");}
+      jobs.applyScan(exitJob, tail);
+      if (exitJob.status !== 'running') {
         return {
           status: 'exit',
-          exitCode: job!.exitCode,
+          exitCode: exitJob.exitCode,
           matchedLine: null,
           elapsedMs: Date.now() - startedAt,
         };
       }
     } else if (until === 'pattern') {
-      if (patternScanFrom === null) {
-        patternScanFrom = job ? job.baselineLines : currentTotal - state.paneHeight;
-      }
-      const scanStart = Math.max(-state.historySize, patternScanFrom - state.historySize);
+      patternScanFrom ??= job ? job.baselineLines : currentTotal - state.paneHeight;
+      const scanStart = clampCaptureStart(state, patternScanFrom - state.historySize);
       const lines = await client.capturePane(paneId, scanStart, state.cursorY);
       // Skip the echoed launch line (and any completed sentinel): both carry the
       // SENTINEL_MARKER and neither is real output, so a pattern that also
       // appears in the launched command can't match the echo instead of stdout.
       const matched = lines.find(
-        (line) => !line.includes(SENTINEL_MARKER) && regex!.test(line),
+        (line) => !line.includes(SENTINEL_MARKER) && (regex?.test(line) ?? false),
       );
       if (matched !== undefined) {
         return {

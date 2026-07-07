@@ -19,7 +19,7 @@ const COMMANDS: DelegatedCommand[] = [
 describe('directive block', () => {
   test('suggests close for one-shot and background for long-running', () => {
     const block = directiveBlock(COMMANDS);
-    expect(block).toContain('`run { command: "pnpm test" }`');
+    expect(block).toContain('`run { command: "pnpm test", description: "<why>" }`');
     expect(block).not.toContain('close: true }`'); // one-shots no longer auto-close
     expect(block).toContain('background: true');
     expect(block).toContain('BEGIN sidemux-delegate');
@@ -79,7 +79,7 @@ describe('upsert / remove marked block', () => {
 describe('settings hook merge', () => {
   test('adds a Bash PreToolUse guard entry, idempotently', () => {
     const first = mergeSettingsHook(null) as {
-      hooks: { PreToolUse: Array<{ matcher: string; hooks: Array<{ command: string }> }> };
+      hooks: { PreToolUse: { matcher: string; hooks: { command: string }[] }[] };
     };
     expect(first.hooks.PreToolUse).toHaveLength(1);
     expect(first.hooks.PreToolUse[0]!.matcher).toBe('Bash');
@@ -124,14 +124,14 @@ describe('mcp server merge', () => {
     expect(mergeMcpServer(custom)).toEqual(custom);
   });
 
-  test('writes layout/size env into a new entry when provided', () => {
+  test('writes provided env into a new entry', () => {
     const merged = mergeMcpServer(null, {
-      SIDEMUX_LAYOUT: 'right',
-      SIDEMUX_PANE_SIZE: '40%',
+      SIDEMUX_CLOSE_ON_SUCCESS: '1',
+      SIDEMUX_SESSION: 'work',
     }) as { mcpServers: { sidemux: { env: Record<string, string> } } };
     expect(merged.mcpServers.sidemux.env).toEqual({
-      SIDEMUX_LAYOUT: 'right',
-      SIDEMUX_PANE_SIZE: '40%',
+      SIDEMUX_CLOSE_ON_SUCCESS: '1',
+      SIDEMUX_SESSION: 'work',
     });
   });
 
@@ -141,17 +141,17 @@ describe('mcp server merge', () => {
         sidemux: {
           command: 'node',
           args: ['dist/index.js'],
-          env: { SIDEMUX_LAYOUT: 'bottom', OTHER: 'keep' },
+          env: { SIDEMUX_SESSION: 'old', OTHER: 'keep' },
         },
       },
     };
-    const merged = mergeMcpServer(existing, { SIDEMUX_LAYOUT: 'left' }) as {
+    const merged = mergeMcpServer(existing, { SIDEMUX_SESSION: 'new' }) as {
       mcpServers: { sidemux: { command: string; args: string[]; env: Record<string, string> } };
     };
     expect(merged.mcpServers.sidemux).toEqual({
       command: 'node',
       args: ['dist/index.js'],
-      env: { SIDEMUX_LAYOUT: 'left', OTHER: 'keep' },
+      env: { SIDEMUX_SESSION: 'new', OTHER: 'keep' },
     });
   });
 

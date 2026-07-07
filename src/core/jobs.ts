@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { isKnownShell, type ShellDialect } from '../config.js';
 import type { TmuxClient } from '../tmux/client.js';
 import type { Job } from '../types.js';
+import { totalLines } from './shared.js';
 
 export function makeJobId(): string {
   return `j${randomBytes(3).toString('hex')}`;
@@ -26,8 +27,8 @@ export function sentinelRegex(jobId: string): RegExp {
 export function parseSentinel(lines: string[], jobId: string): number | null {
   const regex = sentinelRegex(jobId);
   for (let i = lines.length - 1; i >= 0; i--) {
-    const match = regex.exec(lines[i]!);
-    if (match) return Number.parseInt(match[1]!, 10);
+    const match = regex.exec(lines[i] ?? '');
+    if (match?.[1] !== undefined) {return Number.parseInt(match[1], 10);}
   }
   return null;
 }
@@ -83,10 +84,27 @@ export function scrubOutput(lines: string[]): string[] {
     .map((line) => line.replace(SENTINEL_ECHO, '').replace(SENTINEL_RESIDUE, ''));
 }
 
+/** Finished jobs retained for late read/wait lookups before pruning. */
+const MAX_FINISHED_JOBS = 100;
+
 export class JobManager {
   private readonly jobs = new Map<string, Job>();
 
   constructor(private readonly client: TmuxClient) {}
+
+  /**
+   * Drop the oldest finished jobs beyond MAX_FINISHED_JOBS so the registry
+   * (and findByPane's linear scan) stays bounded in a long-lived server.
+   * Running jobs are never pruned.
+   */
+  private prune(): void {
+    const finished = [...this.jobs.values()]
+      .filter((job) => job.status !== 'running')
+      .sort((a, b) => a.startedAt - b.startedAt);
+    for (const job of finished.slice(0, Math.max(0, finished.length - MAX_FINISHED_JOBS))) {
+      this.jobs.delete(job.jobId);
+    }
+  }
 
   get(jobId: string): Job | undefined {
     return this.jobs.get(jobId);
@@ -127,7 +145,7 @@ export class JobManager {
       paneId,
       command,
       startedAt: Date.now(),
-      baselineLines: state.historySize + state.cursorY + 1,
+      baselineLines: totalLines(state),
       status: 'running',
       exitCode: null,
     };
@@ -136,6 +154,7 @@ export class JobManager {
     await this.client.sendKeys(paneId, ['Enter']);
 
     this.jobs.set(jobId, job);
+    this.prune();
     return job;
   }
 
@@ -154,7 +173,7 @@ export class JobManager {
 
   /** Update job state from freshly captured pane lines. */
   applyScan(job: Job, lines: string[]): Job {
-    if (job.status !== 'running') return job;
+    if (job.status !== 'running') {return job;}
     const exitCode = parseSentinel(lines, job.jobId);
     if (exitCode !== null) {
       job.exitCode = exitCode;

@@ -25,8 +25,8 @@ export interface RunnerOptions {
 
 export function createTmuxRunner(options: RunnerOptions = {}): TmuxRunner {
   const prefix: string[] = [];
-  if (options.socketName) prefix.push('-L', options.socketName);
-  if (options.configFile) prefix.push('-f', options.configFile);
+  if (options.socketName) {prefix.push('-L', options.socketName);}
+  if (options.configFile) {prefix.push('-f', options.configFile);}
 
   return (args) =>
     new Promise((resolve, reject) => {

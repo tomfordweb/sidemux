@@ -62,6 +62,12 @@ re-run `sidemux init --commands ...` so sidemux writes that block for you.
 - `go.mod` → `go test ./...`, `go vet ./...`, `go build ./...`
 - `Cargo.toml` → `cargo test`, `cargo clippy`, `cargo build`
 - `Makefile` and `justfile` targets → `make test`, `just test`, …
+- `.sidemux.toml` `[scripts]` entries (see
+  [configuration.md](./configuration.md)) — project-named sidemux scripts are
+  offered as delegation candidates too
+
+When run interactively, `init` also offers to scaffold the global config file
+`~/.config/sidemux/config.toml` if it doesn't exist yet.
 
 **Nothing detected?** Init still offers to install a *generic* directive block
 that tells the agent to route heavy commands — test suites, linters, type
@@ -97,7 +103,7 @@ sidemux init --sync --yes    # refresh only; new candidates are listed, not adde
 Sync keeps your recorded command list (including anything added via
 `--commands`), asks only about commands detected since the last init, touches
 `.mcp.json` only if a sidemux entry already exists, and leaves that entry's
-env (layout, pane size) alone.
+`env` block alone.
 
 ## Uninstalling
 

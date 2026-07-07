@@ -111,29 +111,23 @@ backoff costs microseconds per tick and handles every case uniformly.
 
 ## Pane lifecycle
 
-- **Inside tmux** (`$TMUX` set): the first delegated pane is a **full-span
-  bar** on the configured edge — `split-window -d -f -l <size>` off the
-  agent's pane (`$TMUX_PANE`) — so it spans the whole window regardless of
-  other splits and the human can watch the work live. `SIDEMUX_LAYOUT`
-  (`right`/`left`/`top`/`bottom`, default `bottom`) picks the edge and maps to
-  tmux's `-h`/`-v`/`-b`; `-f` makes it full-width (top/bottom) or full-height
-  (left/right). `SIDEMUX_PANE_SIZE` (default `30%`) sets the bar's thickness
-  via `-l`. Additional concurrent panes are appended *into that bar* (splitting
-  the last bar pane along its length, without `-f`), so the bar's thickness —
-  and the agent's share of the window — stays constant no matter how many
-  panes are running. (A modal `display-popup` is deliberately not supported:
-  popup panes aren't addressable by `capture-pane` or `list-panes`, so
-  `read`/`wait`/`close` could not work inside one.)
-- **No agent pane** (`$TMUX_PANE` unset — e.g. a client that launched the
-  server without passing its tmux env): sidemux can't split off the agent's
-  pane, so it hosts the bar in its own **window** instead. If a client is
-  attached to the tmux server, sidemux finds that session via `list-clients`
-  and opens a `smux`-named window *there* — so the work still shows up in your
-  tmux, switchable with `prefix + w`, and additional jobs tile within that
-  window exactly like the bar. With no client attached (headless/CI), it falls
-  back to a detached `smux` session (`SIDEMUX_SESSION`); run `tmux attach -t
-  smux` to watch. Either way the token-saving core is unaffected — `capture-pane`
-  reads output the same from any session.
+- **All panes live in the sidemux workspace session** (`SIDEMUX_SESSION`,
+  default `smux`): sidemux creates or reuses one window per AI agent session.
+  The window tab is a short owner id from `SIDEMUX_AGENT_ID`,
+  `CODEX_THREAD_ID`, or — by default — a stable hash of the server's working
+  directory (`cwd-<8hex>`). The cwd-derived default means restarting the MCP
+  server in the same project produces the same owner id, so the new process
+  reclaims the panes the previous one created (a pid-based id would orphan
+  them all on every restart). The run `name` or `project` remains the pane
+  label and reusable target. Concurrent jobs from the same agent split inside
+  that owner window; when a window fills up, sidemux retiles it
+  (`select-layout tiled`) and retries the split. With no attached client
+  (headless/CI), the workspace is detached; run `tmux attach -t smux` to
+  watch, or press `Prefix e` (configurable) for the dashboard popup.
+- A modal `display-popup` (tmux ≥ 3.2) is used only for the dashboard and
+  transient status/navigation helpers.
+  Jobs do not run in popups because popup panes are not durable targets for
+  `capture-pane`, `list-panes`, `read`, `wait`, or `close`.
 - Every created pane is anchored with `-c <cwd>` — the explicit `cwd`
   argument, otherwise the agent's working directory. tmux's `default-path` is
   never relied upon.
@@ -148,17 +142,54 @@ backoff costs microseconds per tick and handles every case uniformly.
   option, not `pane_title`, matters: most shells rewrite their pane's title on
   every prompt (an OSC escape setting it to the cwd), which would otherwise
   blank the header — the option is sidemux's alone and can't be clobbered. The
-  border is enabled on sidemux's window and restored to the default once the
-  last managed pane closes (`SIDEMUX_PANE_HEADER=0` leaves the window
-  untouched).
-- Idle panes are reused for later runs (`SIDEMUX_REUSE_PANES=0` disables
-  this). A rerun prefers the idle pane that last ran the *same command* — so
-  `pnpm test` keeps landing in its own pane — then falls back to any idle
-  managed pane before splitting a new one. A reused pane sitting in the wrong
-  directory gets a `cd '<cwd>' && ` prefix.
+  border is enabled per owner window, and each window's `pane-border-status`
+  is restored to the default when the last managed pane *in that window* is
+  removed — whether it exited and closed, was killed, or was garbage-collected
+  (`SIDEMUX_PANE_HEADER=0` leaves windows untouched).
+- External workspace window names include compact status markers, and the
+  `status` tool returns the same view grouped by session/window/tab. When a
+  human tmux client is attached, sidemux makes `Prefix e` open a local
+  dashboard popup for the sidemux workspace. If no sidemux workspace exists
+  yet, the popup says so; otherwise it switches only after you select an item
+  with Enter. `SIDEMUX_DASHBOARD_DENSITY=compact|normal|spacious` changes only
+  dashboard spacing. The dashboard redraws on terminal resize and uses a table:
+  full metadata columns when width allows, compact script/cwd/id columns when it
+  does not. Headless detached sessions skip key bindings.
+- **Reuse is strict affinity** (`SIDEMUX_REUSE_PANES=0` disables it). A run
+  with a `name` reuses that named pane. An unnamed run reuses only the idle
+  pane that last ran the *exact same command* — so `pnpm test` keeps landing
+  in its own pane — with the most-recently-used pane winning when several
+  match. No match means a new pane: grabbing an arbitrary idle pane would
+  steal another command's pane and destroy the rerun-lands-in-the-same-pane
+  property. sidemux never reuses a busy pane and never touches panes owned by
+  other agents. A reused pane sitting in the wrong directory gets a
+  `cd '<cwd>' && ` prefix.
 - Panes close automatically after a clean exit when
   `SIDEMUX_CLOSE_ON_SUCCESS=1` (off by default): a foreground command exiting
   `0` destroys its pane, while a failed command leaves the pane up for
   inspection. A per-run `close: true` still forces closing regardless of exit
-  code. Reuse and close-on-success are mutually exclusive in practice — a
-  closed pane can't be reused.
+  code.
+
+## Garbage collection
+
+Cleanup is **event-driven**: it piggybacks on tool calls (throttled to at most
+once per short interval) — there are no timers, and an idle server does no
+background work.
+
+- **Idle-pane TTL.** A finished one-shot pane — including a *failed* one, whose
+  output stays inspectable until then — is collected once its last use is older
+  than `SIDEMUX_IDLE_PANE_TTL_MS` (default 15 minutes). Busy panes,
+  persistent (background) panes, and other agents' panes are never touched.
+- **Dead-server window sweep.** Owner windows carry `@smux_agent_id`,
+  `@smux_server_pid`, and `@smux_last_seen_at`. Each sweep does one tmux
+  inventory pass, checks pid liveness locally, and kills idle owner windows
+  whose sidemux server process is gone. Windows with busy panes are skipped.
+  (A recycled pid can make a dead server look alive; that merely delays
+  collection.)
+- **Stale-busy recovery.** If a server crashes mid-run, its pane would be
+  marked busy forever; the dead server pid is detected and the pane becomes
+  reusable and collectable again.
+
+Ownership survives restarts: because the default agent id is derived from the
+server's working directory, a restarted MCP server in the same project has the
+same id and adopts — rather than orphans — the panes its predecessor created.

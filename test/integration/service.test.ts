@@ -94,6 +94,27 @@ describe.skipIf(!tmuxAvailable())('SidemuxService end-to-end on real tmux', () =
     expect(grepped.text).not.toContain('bbb');
   });
 
+  test('run publishes token-savings stats on the agent window', async () => {
+    const result = await service.run({
+      command: 'echo lint-stats-probe',
+      name: 'svc',
+      timeout_ms: 10_000,
+      background: false,
+    });
+    expect(result.status).toBe('done');
+    const windows = await fx.client.listWindows('smux');
+    const encoded = windows.map((w) => w.statsJson).find((value) => value);
+    expect(encoded).toBeTruthy();
+    const stats = JSON.parse(encoded ?? '{}') as Record<
+      string,
+      { ai: number; smux: number; responses: number }
+    >;
+    expect(stats.lint).toBeDefined();
+    expect(stats.lint?.responses).toBeGreaterThanOrEqual(1);
+    expect(stats.lint?.ai).toBeGreaterThan(0);
+    expect(stats.lint?.smux).toBeGreaterThan(0);
+  });
+
   test('background run + wait pattern + kill interrupt (dev-server flow)', async () => {
     const run = await service.run({
       command: 'sh -c "echo booting; sleep 0.3; echo LISTENING on 4000; sleep 60"',
@@ -118,6 +139,60 @@ describe.skipIf(!tmuxAvailable())('SidemuxService end-to-end on real tmux', () =
     const job = service.jobs.get(run.job_id)!;
     expect(job.status).toBe('failed');
     expect(job.exitCode).toBe(130);
+  });
+
+  test('status settles a finished background job without read/wait', async () => {
+    const run = await service.run({
+      command: 'sh -c "exit 3"',
+      name: 'bgexit',
+      timeout_ms: 10_000,
+      background: true,
+    });
+    expect(run.status).toBe('running');
+
+    let status: string | null = 'running';
+    for (let attempt = 0; attempt < 40 && status === 'running'; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      const { tabs } = await service.status();
+      const pane = tabs.flatMap((tab) => tab.panes).find((p) => p.job_id === run.job_id);
+      status = pane?.job_status ?? null;
+    }
+    expect(status).toBe('failed');
+    expect(service.jobs.get(run.job_id)?.exitCode).toBe(3);
+  });
+
+  test('run description round-trips into list_panes', async () => {
+    const run = await service.run({
+      command: 'echo described',
+      description: 'context probe at user request',
+      name: 'desc',
+      timeout_ms: 10_000,
+      background: false,
+    });
+    expect(run.status).toBe('done');
+    const panes = await service.listPanes(false);
+    const pane = panes.find((candidate) => candidate.pane === run.pane);
+    expect(pane?.description).toBe('context probe at user request');
+  });
+
+  test("run resolves .sidemux.toml script names against the run's cwd", async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'smux-scripts-'));
+    try {
+      await writeFile(
+        join(dir, '.sidemux.toml'),
+        '[scripts]\n"probe:e2e" = "echo script-resolved-ok"\n',
+      );
+      const result = await service.run({
+        command: 'probe:e2e',
+        cwd: dir,
+        timeout_ms: 10_000,
+        background: false,
+      });
+      expect(result.status).toBe('done');
+      expect(result.tail).toContain('script-resolved-ok');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   test('send_keys answers a prompt; guard refuses the agent pane', async () => {
@@ -154,7 +229,7 @@ describe.skipIf(!tmuxAvailable())('SidemuxService end-to-end on real tmux', () =
     const panes = await service.listPanes(false);
     const managed = panes.filter((p) => p.managed);
     expect(managed.length).toBeGreaterThan(0);
-    const svc = managed.find((p) => p.title.startsWith('smux:svc'));
+    const svc = managed.find((p) => p.name === 'svc');
     expect(svc).toBeDefined();
     expect(svc!.job_id).toMatch(/^j[0-9a-f]{6}$/);
 
@@ -290,6 +365,68 @@ describe.skipIf(!tmuxAvailable())('SidemuxService end-to-end on real tmux', () =
     expect(waited.tail).not.toContain('<<SMUX:');
   });
 
+  test('a fresh service instance reuses an existing managed pane', async () => {
+    const first = await service.run({
+      command: 'echo shared-first',
+      name: 'shared',
+      timeout_ms: 10_000,
+      background: false,
+    });
+    const sibling = new SidemuxService(
+      fx.client,
+      loadConfig({ SIDEMUX_PANE_SHELL: 'sh' }),
+      { TMUX: 'fixture', TMUX_PANE: fx.firstPane },
+      '/tmp',
+    );
+
+    const second = await sibling.run({
+      command: 'echo shared-second',
+      name: 'shared',
+      timeout_ms: 10_000,
+      background: false,
+    });
+    expect(second.pane).toBe(first.pane);
+  });
+
+  test('idle-pane TTL trims expired panes after a run, keeping the just-used one', async () => {
+    // TTL 0 = every idle pane is already expired; only keepPaneId (the pane
+    // that just ran) survives each post-run trim. Failed panes are collected
+    // by the TTL too — retention, not exit code, decides.
+    const trimming = new SidemuxService(
+      fx.client,
+      loadConfig({ SIDEMUX_PANE_SHELL: 'sh', SIDEMUX_IDLE_PANE_TTL_MS: '0' }),
+      { TMUX: 'fixture', TMUX_PANE: fx.firstPane },
+      '/tmp',
+    );
+
+    const first = await trimming.run({
+      command: 'echo trim-one',
+      name: 'trim-one',
+      timeout_ms: 10_000,
+      background: false,
+    });
+    const failed = await trimming.run({
+      command: 'ls /definitely-not-a-real-path-xyz',
+      name: 'trim-fail',
+      timeout_ms: 10_000,
+      background: false,
+    });
+    expect((await trimming.listPanes(true)).find((p) => p.pane === first.pane)).toBeUndefined();
+
+    const second = await trimming.run({
+      command: 'echo trim-two',
+      name: 'trim-two',
+      timeout_ms: 10_000,
+      background: false,
+    });
+
+    const managed = (await trimming.listPanes(true)).filter((p) => p.managed);
+    expect(managed.find((p) => p.pane === failed.pane)).toBeUndefined();
+    expect(managed.find((p) => p.pane === second.pane)).toBeDefined();
+
+    await trimming.closeAll();
+  });
+
   test('close_all destroys every managed pane in one call', async () => {
     await service.run({ command: 'echo one', name: 'ca1', timeout_ms: 10_000, background: false });
     await service.run({ command: 'echo two', name: 'ca2', timeout_ms: 10_000, background: false });
@@ -328,7 +465,7 @@ describe.skipIf(!tmuxAvailable())('SidemuxService end-to-end on real tmux', () =
     expect(ran.tail).toContain(bevvi);
 
     const listed = await mono.listPanes(true);
-    expect(listed.find((p) => p.pane === ran.pane)?.title).toContain('smux:bevvi');
+    expect(listed.find((p) => p.pane === ran.pane)?.name).toContain('bevvi');
 
     // An unknown project errors with the list of valid names.
     await expect(
@@ -336,6 +473,41 @@ describe.skipIf(!tmuxAvailable())('SidemuxService end-to-end on real tmux', () =
     ).rejects.toThrow(/unknown project "nope".*available: bevvi/s);
 
     await mono.closeAll();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  test('run resolves a .sidemux.toml script name to its command', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'smux-scripts-'));
+    await writeFile(join(root, '.sidemux.toml'), '[scripts]\nhello = "echo script-resolved"\n');
+
+    const scripted = new SidemuxService(
+      fx.client,
+      loadConfig({ SIDEMUX_PANE_SHELL: 'sh' }),
+      { TMUX: 'fixture', TMUX_PANE: fx.firstPane },
+      root,
+    );
+
+    const ran = await scripted.run({
+      command: 'hello',
+      timeout_ms: 10_000,
+      background: false,
+    });
+    expect(ran.status).toBe('done');
+    expect(ran.tail).toContain('script-resolved');
+
+    // The pane is named after the script.
+    const listed = await scripted.listPanes(true);
+    expect(listed.find((p) => p.pane === ran.pane)?.name).toContain('hello');
+
+    // A non-script command still passes through as raw shell.
+    const raw = await scripted.run({
+      command: 'echo raw-shell',
+      timeout_ms: 10_000,
+      background: false,
+    });
+    expect(raw.tail).toContain('raw-shell');
+
+    await scripted.closeAll();
     await rm(root, { recursive: true, force: true });
   });
 
@@ -384,12 +556,12 @@ describe.skipIf(!tmuxAvailable())('SidemuxService end-to-end on real tmux', () =
   test('close_all survives a managed pane that died out-of-band', async () => {
     const a = await service.run({ command: 'echo r1', name: 'res1', timeout_ms: 10_000, background: false });
     const b = await service.run({ command: 'echo r2', name: 'res2', timeout_ms: 10_000, background: false });
-    // A human closing a split, or a self-exiting command, leaves a dead pane in
-    // the registry. close_all must tear down the survivor regardless.
+    // A human closing a split removes it from tmux's live inventory. close_all
+    // should still tear down every remaining managed pane without choking on
+    // the missing one.
     await fx.client.killPane(a.pane);
 
     const result = await service.closeAll();
-    expect(result.closed).toContain(a.pane);
     expect(result.closed).toContain(b.pane);
     const managedAfter = (await service.listPanes(true)).filter((p) => p.managed);
     expect(managedAfter.length).toBe(0);

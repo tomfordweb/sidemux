@@ -59,7 +59,7 @@ const DEFAULT_RUN_TIMEOUT_MS = 15 * 60 * 1000;
 
 function envDurationMs(name: string, fallback: number): number {
   const raw = process.env[name];
-  if (!raw) return fallback;
+  if (!raw) {return fallback;}
   const value = Number(raw);
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
@@ -94,18 +94,18 @@ async function benchCommand(client: Client, command: string, cwd: string): Promi
   return { inline: inlineChars(command, cwd), sidemux: resultChars(run) };
 }
 
-function parseCommands(argv: string[]): { commands: string[]; help: boolean } {
+export function parseCommands(argv: string[]): { commands: string[]; help: boolean } {
   const commands: string[] = [];
   let help = false;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
-    if (arg === '--help' || arg === '-h') help = true;
+    if (arg === '--help' || arg === '-h') {help = true;}
     else if (arg === '--command') {
       const value = argv[++i];
-      if (value) commands.push(value);
+      if (value) {commands.push(value);}
     } else if (arg.startsWith('--command=')) {
       const value = arg.slice('--command='.length);
-      if (value) commands.push(value);
+      if (value) {commands.push(value);}
     }
   }
   return { commands, help };
@@ -156,7 +156,7 @@ export async function runBenchmark(options: BenchOptions): Promise<number> {
       `sidemux benchmark: running ${commands.length} command(s) twice each ` +
         '(inline baseline + sidemux pane, throwaway tmux socket)…\n\n',
     );
-    const rows: Array<[string, Measurement]> = [];
+    const rows: [string, Measurement][] = [];
     for (const command of commands) {
       rows.push([`\`${command}\``, await benchCommand(client, command, options.cwd)]);
     }
@@ -171,7 +171,7 @@ export async function runBenchmark(options: BenchOptions): Promise<number> {
       totalSidemux += m.sidemux;
       const ratio = m.inline / m.sidemux;
       const reduction = ratio >= 2 ? `${ratio.toFixed(0)}×` : ratio >= 1 ? `${ratio.toFixed(1)}×` : '—';
-      if (ratio < 1) anyQuiet = true;
+      if (ratio < 1) {anyQuiet = true;}
       out.write(
         `| ${name} | ${fmt(tokens(m.inline))} tok | ${fmt(tokens(m.sidemux))} tok | ${reduction} |\n`,
       );
