@@ -916,27 +916,21 @@ describe("PaneAllocator", () => {
 
       expect(client.bindKey).toHaveBeenCalledTimes(1);
       const binding = vi.mocked(client.bindKey).mock.calls[0]?.[0];
-      expect(binding?.slice(0, 4)).toEqual([
+      // run-shell wrapper: display-popup does not format-expand its command,
+      // so #{client_tty} must resolve before the popup opens.
+      expect(binding?.slice(0, 5)).toEqual([
         "-T",
         "prefix",
         "e",
-        "display-popup",
+        "run-shell",
+        "-b",
       ]);
-      expect(binding).toEqual(
-        expect.arrayContaining([
-          "-E",
-          "-w",
-          "96%",
-          "-h",
-          "92%",
-          "-x",
-          "C",
-          "-y",
-          "C",
-        ]),
-      );
 
       const command = binding?.at(-1) ?? "";
+      expect(command).toContain(
+        "display-popup -c '#{client_tty}' -E -w 96% -h 92% -x C -y C",
+      );
+      expect(command).toContain("SIDEMUX_CLIENT_TTY='#{client_tty}'");
       expect(command).toContain("SIDEMUX_SESSION='smux'");
       expect(command).toContain(`'${process.execPath}'`);
       expect(command).toContain(`'${process.argv[1]}'`);
@@ -956,13 +950,14 @@ describe("PaneAllocator", () => {
       await allocator.acquire({ name: "test" });
 
       const binding = vi.mocked(client.bindKey).mock.calls[0]?.[0];
-      expect(binding?.slice(0, 4)).toEqual([
+      expect(binding?.slice(0, 5)).toEqual([
         "-T",
         "prefix",
         "s",
-        "display-popup",
+        "run-shell",
+        "-b",
       ]);
-      expect(binding).toContain("-E");
+      expect(binding?.at(-1)).toContain("display-popup -c '#{client_tty}' -E");
     });
 
     test("keybind can be installed on process startup before a run", async () => {
@@ -993,6 +988,8 @@ describe("PaneAllocator", () => {
         vi.mocked(client.bindKey).mock.calls[0]?.[0]?.at(-1) ?? "";
       expect(command).toContain("SIDEMUX_SESSION='smux'");
       expect(command).toContain("SIDEMUX_TMUX_SOCKET='sidemux-test'");
+      // The nested display-popup call must hit the same tmux server.
+      expect(command).toContain("tmux -L 'sidemux-test' display-popup");
       expect(command).toContain("dashboard");
     });
 

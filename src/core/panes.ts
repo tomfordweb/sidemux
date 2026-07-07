@@ -774,6 +774,11 @@ export class PaneAllocator {
       return;
     }
     const chooserCommand = [
+      // #{client_tty} names the client that pressed the key. The dashboard
+      // needs it to retarget switch-client after its popup closes — tmux
+      // ignores a bare switch-client for a client whose popup is open, and a
+      // detached retry without -c may grab a different client entirely.
+      "SIDEMUX_CLIENT_TTY='#{client_tty}'",
       `SIDEMUX_SESSION=${shellQuote(session)}`,
       this.config.socketName
         ? `SIDEMUX_TMUX_SOCKET=${shellQuote(this.config.socketName)}`
@@ -785,21 +790,25 @@ export class PaneAllocator {
       .filter(Boolean)
       .join(" ");
 
+    // display-popup does not format-expand its shell command, so the binding
+    // goes through run-shell (which does) to resolve #{client_tty} at
+    // keypress time before opening the popup.
+    const socketFlags = this.config.socketName
+      ? `-L ${shellQuote(this.config.socketName)} `
+      : "";
+    // -c pins the popup to the pressing client: run-shell detaches from the
+    // client context, so an unqualified display-popup could pick another one.
+    const popupCommand =
+      `tmux ${socketFlags}display-popup -c '#{client_tty}' ` +
+      `-E -w 96% -h 92% -x C -y C "${chooserCommand}"`;
+
     await this.client.bindKey([
       "-T",
       "prefix",
       this.config.dashboardKey,
-      "display-popup",
-      "-E",
-      "-w",
-      "96%",
-      "-h",
-      "92%",
-      "-x",
-      "C",
-      "-y",
-      "C",
-      chooserCommand,
+      "run-shell",
+      "-b",
+      popupCommand,
     ]);
     this.keybindsInstalled = true;
   }

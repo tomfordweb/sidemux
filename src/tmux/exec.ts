@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 
 const MAX_BUFFER = 10 * 1024 * 1024;
 
@@ -23,7 +23,7 @@ export interface RunnerOptions {
   configFile?: string | null;
 }
 
-export function createTmuxRunner(options: RunnerOptions = {}): TmuxRunner {
+function runnerPrefix(options: RunnerOptions): string[] {
   const prefix: string[] = [];
   if (options.socketName) {
     prefix.push("-L", options.socketName);
@@ -31,6 +31,32 @@ export function createTmuxRunner(options: RunnerOptions = {}): TmuxRunner {
   if (options.configFile) {
     prefix.push("-f", options.configFile);
   }
+  return prefix;
+}
+
+/**
+ * Run tmux subcommands from a detached child shortly after this process exits.
+ * tmux silently ignores `switch-client` for a client whose popup is still
+ * open, so the dashboard defers focus commands until its popup has closed.
+ */
+export function spawnDetachedTmuxSequence(
+  options: RunnerOptions,
+  commands: string[][],
+  delayMs = 120,
+): void {
+  const prefix = runnerPrefix(options);
+  const quote = (arg: string): string => `'${arg.replaceAll("'", `'\\''`)}'`;
+  const script = [
+    `sleep ${(delayMs / 1000).toFixed(3)}`,
+    ...commands.map((args) =>
+      ["tmux", ...prefix, ...args].map(quote).join(" "),
+    ),
+  ].join("; ");
+  spawn("sh", ["-c", script], { detached: true, stdio: "ignore" }).unref();
+}
+
+export function createTmuxRunner(options: RunnerOptions = {}): TmuxRunner {
+  const prefix = runnerPrefix(options);
 
   return (args) =>
     new Promise((resolve, reject) => {

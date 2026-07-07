@@ -410,9 +410,7 @@ function stubDashboardClient(overrides: Partial<TmuxClient> = {}): TmuxClient {
     ]),
     listPanes: vi.fn(async () => []),
     capturePane: vi.fn(async () => ["pane preview line"]),
-    switchClient: vi.fn(async () => undefined),
-    selectPane: vi.fn(async () => undefined),
-    zoomPane: vi.fn(async () => undefined),
+    isZoomed: vi.fn(async () => false),
     killPane: vi.fn(async () => undefined),
     killWindow: vi.fn(async () => undefined),
     ...overrides,
@@ -423,11 +421,14 @@ function fakeWatcher(tickMs?: number): {
   deps: DashboardDeps;
   emit: (event: WatcherEvent) => void;
   kill: ReturnType<typeof vi.fn>;
+  focus: ReturnType<typeof vi.fn>;
 } {
   const kill = vi.fn();
+  const focus = vi.fn();
   let handler: (event: WatcherEvent) => void = () => {};
   const deps: DashboardDeps = {
     ...(tickMs === undefined ? {} : { tickMs }),
+    deferFocus: focus,
     spawnWatcher: (_session, onEvent) => {
       handler = onEvent;
       return { kill };
@@ -439,6 +440,7 @@ function fakeWatcher(tickMs?: number): {
       handler(event);
     },
     kill,
+    focus,
   };
 }
 
@@ -498,23 +500,41 @@ describe("runDashboard key loop", () => {
     expect(stdout.text).toContain("\x1b[?25h"); // cursor restored
   });
 
-  test("Enter opens the selected window via switch-client then closes", async () => {
+  test("Enter defers the window switch until after close", async () => {
     const { stdin } = installFakeTty();
     const client = stubDashboardClient();
-    await runDashboard(client, loadConfig({}), fakeWatcher().deps);
+    const watcher = fakeWatcher();
+    await runDashboard(client, loadConfig({}), watcher.deps);
 
     await press(stdin, "\r");
-    expect(client.switchClient).toHaveBeenCalledWith("@1");
+    expect(watcher.focus).toHaveBeenCalledWith([["switch-client", "-t", "@1"]]);
     expect(stdin.setRawMode).toHaveBeenCalledWith(false);
+  });
+
+  test("SIDEMUX_CLIENT_TTY pins the switch to the popup's client", async () => {
+    const { stdin } = installFakeTty();
+    const client = stubDashboardClient();
+    const watcher = fakeWatcher();
+    process.env.SIDEMUX_CLIENT_TTY = "/dev/pts/9";
+    try {
+      await runDashboard(client, loadConfig({}), watcher.deps);
+      await press(stdin, "\r");
+    } finally {
+      delete process.env.SIDEMUX_CLIENT_TTY;
+    }
+    expect(watcher.focus).toHaveBeenCalledWith([
+      ["switch-client", "-c", "/dev/pts/9", "-t", "@1"],
+    ]);
   });
 
   test("j and k move the cursor before opening", async () => {
     const { stdin } = installFakeTty();
     const client = stubDashboardClient();
-    await runDashboard(client, loadConfig({}), fakeWatcher().deps);
+    const watcher = fakeWatcher();
+    await runDashboard(client, loadConfig({}), watcher.deps);
 
     await press(stdin, "j", "j", "k", "\r");
-    expect(client.switchClient).toHaveBeenCalledWith("@2");
+    expect(watcher.focus).toHaveBeenCalledWith([["switch-client", "-t", "@2"]]);
   });
 
   test("d kills the selected window and reloads the list", async () => {
@@ -555,7 +575,8 @@ describe("runDashboard key loop", () => {
   test("slash enters insert mode, typed chars filter, Enter opens the match", async () => {
     const { stdin, stdout } = installFakeTty();
     const client = stubDashboardClient();
-    await runDashboard(client, loadConfig({}), fakeWatcher().deps);
+    const watcher = fakeWatcher();
+    await runDashboard(client, loadConfig({}), watcher.deps);
 
     await press(stdin, "/", "t", "e");
     const filtered = stripAnsi(stdout.chunks.at(-1) ?? "");
@@ -564,7 +585,7 @@ describe("runDashboard key loop", () => {
     expect(filtered).toContain("te");
 
     await press(stdin, "\r");
-    expect(client.switchClient).toHaveBeenCalledWith("@3");
+    expect(watcher.focus).toHaveBeenCalledWith([["switch-client", "-t", "@3"]]);
   });
 
   test("backspace edits the filter and Escape returns to normal mode", async () => {
@@ -719,23 +740,38 @@ describe("runDashboard pane tree key loop", () => {
   test("Tab walks down the tree and Enter on a pane row selects and zooms it", async () => {
     const { stdin } = installFakeTty();
     const client = treeClient();
-    await runDashboard(client, loadConfig({}), fakeWatcher().deps);
+    const watcher = fakeWatcher();
+    await runDashboard(client, loadConfig({}), watcher.deps);
 
     await press(stdin, "\t", "\r");
-    expect(client.switchClient).toHaveBeenCalledWith("@1");
-    expect(client.selectPane).toHaveBeenCalledWith("%20");
-    expect(client.zoomPane).toHaveBeenCalledWith("%20");
+    expect(watcher.focus).toHaveBeenCalledWith([
+      ["switch-client", "-t", "@1"],
+      ["select-pane", "-t", "%20"],
+      ["resize-pane", "-Z", "-t", "%20"],
+    ]);
+  });
+
+  test("Enter on an already-zoomed pane never toggles zoom off", async () => {
+    const { stdin } = installFakeTty();
+    const client = treeClient({ isZoomed: vi.fn(async () => true) });
+    const watcher = fakeWatcher();
+    await runDashboard(client, loadConfig({}), watcher.deps);
+
+    await press(stdin, "\t", "\r");
+    expect(watcher.focus).toHaveBeenCalledWith([
+      ["switch-client", "-t", "@1"],
+      ["select-pane", "-t", "%20"],
+    ]);
   });
 
   test("Shift-Tab moves back up; Enter on the agent row never selects a pane", async () => {
     const { stdin } = installFakeTty();
     const client = treeClient();
-    await runDashboard(client, loadConfig({}), fakeWatcher().deps);
+    const watcher = fakeWatcher();
+    await runDashboard(client, loadConfig({}), watcher.deps);
 
     await press(stdin, "\t", "\x1b[Z", "\r");
-    expect(client.switchClient).toHaveBeenCalledWith("@1");
-    expect(client.selectPane).not.toHaveBeenCalled();
-    expect(client.zoomPane).not.toHaveBeenCalled();
+    expect(watcher.focus).toHaveBeenCalledWith([["switch-client", "-t", "@1"]]);
   });
 
   test("d on a pane row kills just that pane", async () => {

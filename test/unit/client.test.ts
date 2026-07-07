@@ -307,4 +307,17 @@ describe("TmuxClient argument construction", () => {
     await client.switchClient("@4");
     expect(calls[0]).toEqual(["switch-client", "-t", "@4"]);
   });
+
+  test("isZoomed reads the pane's window_zoomed_flag", async () => {
+    const { run, calls } = mockRunner("1\n");
+    const client = new TmuxClient(run);
+    expect(await client.isZoomed("%7")).toBe(true);
+    expect(calls[0]).toEqual([
+      "display-message",
+      "-p",
+      "-t",
+      "%7",
+      "#{window_zoomed_flag}",
+    ]);
+  });
 });

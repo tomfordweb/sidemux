@@ -412,6 +412,18 @@ export class TmuxClient {
     await this.run(["resize-pane", "-Z", "-t", paneId]);
   }
 
+  /** Whether the pane's window is currently zoomed. */
+  async isZoomed(paneId: string): Promise<boolean> {
+    const out = await this.run([
+      "display-message",
+      "-p",
+      "-t",
+      paneId,
+      "#{window_zoomed_flag}",
+    ]);
+    return out.trim() === "1";
+  }
+
   async bindKey(args: string[]): Promise<void> {
     await this.run(["bind-key", ...args]);
   }

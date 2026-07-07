@@ -8,6 +8,7 @@ import {
 } from "./core/stats.js";
 import { ROLE_ORDER } from "./init/detect.js";
 import type { TmuxClient } from "./tmux/client.js";
+import { spawnDetachedTmuxSequence } from "./tmux/exec.js";
 import {
   spawnControlWatcher,
   type ControlWatcher,
@@ -218,6 +219,12 @@ export interface DashboardDeps {
   ) => ControlWatcher;
   /** Auto-refresh coalescing interval in ms. */
   tickMs?: number;
+  /**
+   * Runs focus commands (switch-client/select-pane/zoom) after the dashboard
+   * exits. tmux ignores `switch-client` for the client that owns an open
+   * popup, so these must not run while the dashboard is still on screen.
+   */
+  deferFocus?: (commands: string[][]) => void;
 }
 
 /** Watcher dead → force a reload every Nth tick (degraded ~1.5s poll). */
@@ -235,6 +242,11 @@ export async function runDashboard(
     return;
   }
 
+  const deferFocus =
+    deps.deferFocus ??
+    ((commands: string[][]): void => {
+      spawnDetachedTmuxSequence({ socketName: config.socketName }, commands);
+    });
   let state = initialDashboardState();
   let preview = "";
   let stats: WorkspaceStats = {};
@@ -332,15 +344,31 @@ export async function runDashboard(
     if (!row) {
       return;
     }
-    await client.switchClient(row.windowId);
+    // The keybind resolved which client opened this popup; without -c a
+    // detached switch-client may grab whichever client was last active.
+    const clientTty = process.env.SIDEMUX_CLIENT_TTY?.trim();
+    const commands: string[][] = [
+      [
+        "switch-client",
+        ...(clientTty ? ["-c", clientTty] : []),
+        "-t",
+        row.windowId,
+      ],
+    ];
     if (row.kind === "pane") {
-      await client.selectPane(row.activePaneId);
+      commands.push(["select-pane", "-t", row.activePaneId]);
+      let zoomed = false;
       try {
-        await client.zoomPane(row.activePaneId);
+        zoomed = await client.isZoomed(row.activePaneId);
       } catch {
-        // Zooming a lone pane errors on some tmux versions; focus is enough.
+        // Pane may already be gone; zoom stays best-effort.
+      }
+      if (!zoomed) {
+        // resize-pane -Z toggles; only send it when the pane isn't zoomed yet.
+        commands.push(["resize-pane", "-Z", "-t", row.activePaneId]);
       }
     }
+    deferFocus(commands);
     close();
   };
 
