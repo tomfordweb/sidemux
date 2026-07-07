@@ -29,12 +29,17 @@ SIDEMUX_SESSION = "smux"
 # SIDEMUX_MANAGED_ONLY = "1"
 ```
 
+Personal settings that should apply to every project (session name, dashboard
+key/density, TTLs, …) are better placed in the global config file
+`~/.config/sidemux/config.toml`; env vars override it when both are set. See
+[configuration.md](./configuration.md).
+
 ## Notes
 
-- Run Codex from inside a tmux session and sidemux splits panes beside it.
-  Without the agent's tmux env, sidemux hosts a switchable `smux` window in an
-  attached tmux session when possible; with no attached client, it creates a
-  detached `smux` session instead (`tmux attach -t smux` to watch).
+- sidemux runs commands in the `smux` workspace session. Each
+  Codex thread gets its own owner window; `name`/`project` labels panes inside
+  that window. Attach with `tmux attach -t smux` to watch, or press `Prefix e`
+  from any tmux session for the dashboard popup (tmux ≥ 3.2).
 - Codex has its own tool-call timeout (`tool_timeout_sec` in newer releases).
   sidemux's `wait` returns a re-armable `timeout` status before typical
   defaults fire; the agent simply calls `wait` again to keep waiting. For a

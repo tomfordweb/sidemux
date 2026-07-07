@@ -1,6 +1,6 @@
 # Stop letting your AI agent babysit terminals.
 
-`sidemux` is an MCP server that delegates token-heavy commands to live tmux sidecar panes, giving AI coding agents an efficient `run` / `wait` / `read` loop — with measured token reductions of up to **98.9%** on real-world projects.
+`sidemux` is an MCP server that delegates token-heavy commands to live tmux panes in a dedicated workspace session, giving AI coding agents an efficient `run` / `wait` / `read` loop — with measured token reductions of up to **98.9%** on real-world projects.
 
 ## Imagine this:
 
@@ -34,13 +34,13 @@ it almost never needs.
 
 ## What sidemux does instead
 
-| Step                     | Tool call                                                           | Tokens spent                                        |
-| ------------------------ | ------------------------------------------------------------------- | --------------------------------------------------- |
-| Start the build          | `run {command: "pnpm build"}`                                       | one call; a pane appears beside you, in your cwd    |
-| Wait for it              | _(none — `run` blocks server-side)_                                 | zero polling turns                                  |
-| It succeeded             | _(nothing — `run` already returned the exit code + a 10-line tail)_ | zero                                                |
-| It failed                | `read {grep: "error\|FAIL", context: 3}`                            | only the error lines                                |
-| Check a dev server later | `read {since: "last-read"}`                                         | only the log lines that are new since the last look |
+| Step                     | Tool call                                                           | Tokens spent                                                  |
+| ------------------------ | ------------------------------------------------------------------- | ------------------------------------------------------------- |
+| Start the build          | `run {command: "pnpm build"}`                                       | one call; a pane appears in the `smux` workspace, in your cwd |
+| Wait for it              | _(none — `run` blocks server-side)_                                 | zero polling turns                                            |
+| It succeeded             | _(nothing — `run` already returned the exit code + a 10-line tail)_ | zero                                                          |
+| It failed                | `read {grep: "error\|FAIL", context: 3}`                            | only the error lines                                          |
+| Check a dev server later | `read {since: "last-read"}`                                         | only the log lines that are new since the last look           |
 
 The waiting happens inside the MCP server — a local process polling tmux with
 adaptive backoff — not in the model loop. Reads are incremental: a per-pane
@@ -104,13 +104,13 @@ On five anonymized headless Playwright E2E targets from the same monorepo —
 each target builds its app first, then runs browser tests — **98.9% saved
 overall**:
 
-| Target                            |     Inline | sidemux | Reduction |
-| --------------------------------- | ---------: | ------: | --------: |
-| Verbose Astro E2E suite           | 33,042 tok |  90 tok |  **369×** |
-| Small Astro E2E suite             |  1,628 tok |  90 tok |   **18×** |
-| Data-heavy Astro E2E suite        |  1,790 tok |  90 tok |   **20×** |
-| Content-commerce Astro E2E suite  |  2,044 tok |  90 tok |   **23×** |
-| Angular app E2E suite             |  3,557 tok |  90 tok |   **40×** |
+| Target                           |     Inline | sidemux | Reduction |
+| -------------------------------- | ---------: | ------: | --------: |
+| Verbose Astro E2E suite          | 33,042 tok |  90 tok |  **369×** |
+| Small Astro E2E suite            |  1,628 tok |  90 tok |   **18×** |
+| Data-heavy Astro E2E suite       |  1,790 tok |  90 tok |   **20×** |
+| Content-commerce Astro E2E suite |  2,044 tok |  90 tok |   **23×** |
+| Angular app E2E suite            |  3,557 tok |  90 tok |   **40×** |
 
 Savings scale with output volume. Chatty commands — test suites, verbose
 builds, dev-server logs — collapse to an exit code plus a 10-line tail, while
@@ -121,7 +121,7 @@ server.
 
 ## Tools
 
-Seven tools cover the entire lifecycle of a delegated command:
+Eight tools cover the lifecycle and status of delegated commands:
 
 | Tool         | What it does                                                                                                                                                                                                                |
 | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -130,8 +130,9 @@ Seven tools cover the entire lifecycle of a delegated command:
 | `read`       | Token-lean output retrieval. `since: "last-read"` returns only new lines; `grep` + `context` filters; `lines` caps the tail; `max_bytes` is a hard ceiling.                                                                 |
 | `send_keys`  | Types into a pane — answer prompts, send `C-c`. Always refuses the agent's own pane.                                                                                                                                        |
 | `list_panes` | Lists panes together with their sidemux job status.                                                                                                                                                                         |
+| `status`     | Summarizes the sidemux workspace grouped by tmux window/tab.                                                                                                                                                                |
 | `kill`       | `interrupt` (Ctrl-C) or `kill-pane` (managed panes only).                                                                                                                                                                   |
-| `close_all`  | Destroys every pane sidemux created this session in one call — tidy up all sidecar panes when you're done. Leaves your own editor/shell panes untouched.                                                                    |
+| `close_all`  | Destroys every live sidemux-managed pane in one call — tidy up the workspace when you're done. Leaves your own editor/shell panes untouched.                                                                                |
 
 ## Reliable completion detection
 
@@ -150,9 +151,21 @@ idleness instead. The full design is described in
 
 ## Requirements
 
-- **tmux** on your `PATH` — sidemux drives real tmux panes; without it every
-  tool returns `tmux is not installed or not on PATH`.
+- **tmux ≥ 3.2** on your `PATH` — sidemux drives real tmux panes; without tmux
+  every tool returns `tmux is not installed or not on PATH`, and the built-in
+  dashboard popup uses `display-popup` (introduced in tmux 3.2).
 - **Node ≥ 18** — the server targets node18 and uses the modern `node:` APIs.
+
+## Watching the output
+
+There are exactly two ways to look at what sidemux is running:
+
+1. **Attach to the workspace session** — `tmux attach -t smux` (or switch to it
+   from inside tmux). One window per agent, one pane per command, each pane
+   headed with the command and pane id.
+2. **Press `Prefix e` from any tmux session** — opens the built-in dashboard
+   popup showing every workspace pane, live. The key is configurable via
+   `SIDEMUX_DASHBOARD_KEY` or the config file.
 
 ## Install (local, pre-publish)
 
@@ -202,39 +215,85 @@ Details: [docs/setup-delegation.md](docs/setup-delegation.md).
 
 ## Configuration
 
-Everything is optional, controlled through environment variables in the MCP
-server config:
+Everything is optional. Settings layer as **built-in defaults < global config
+file < environment variables** — full reference in
+[docs/configuration.md](docs/configuration.md).
 
-| Variable                   | Default     | Meaning                                                                                      |
-| -------------------------- | ----------- | -------------------------------------------------------------------------------------------- |
-| `SIDEMUX_SESSION`          | `smux`      | Session name when the agent runs outside tmux                                                |
-| `SIDEMUX_MANAGED_ONLY`     | off         | `1` = write operations restricted to sidemux-created panes                                   |
-| `SIDEMUX_SHELL`            | auto        | Force the sentinel dialect (`fish` or anything POSIX)                                        |
-| `SIDEMUX_TMUX_SOCKET`      | default     | tmux `-L` socket name                                                                        |
-| `SIDEMUX_MAX_OUTPUT_BYTES` | `8192`      | Base cap on read sizes                                                                       |
-| `SIDEMUX_REUSE_PANES`      | on          | Reruns reuse the pane that last ran the command (else any idle pane); `0` = new pane per run |
-| `SIDEMUX_PANE_SHELL`       | login shell | Shell command for created panes (e.g. `sh`)                                                  |
-| `SIDEMUX_LAYOUT`           | `bottom`    | Edge for the full-span pane bar: `right`/`left`/`top`/`bottom`                               |
-| `SIDEMUX_PANE_SIZE`        | `30%`       | Size of created panes: `NN%` or an integer cell count                                        |
-| `SIDEMUX_PANE_HEADER`      | on          | Show a `command · %id` header on sidemux panes only (tmux pane border); `0` = off            |
-| `SIDEMUX_CLOSE_ON_SUCCESS` | off         | `1` = auto-close a pane after its command exits `0` (failed panes stay up)                   |
+Two config files, two concerns:
+
+```toml
+# ~/.config/sidemux/config.toml — personal settings, applies everywhere
+session = "smux"
+idle_pane_ttl_ms = 900000
+
+[dashboard]
+key = "e"            # Prefix+e opens the workspace dashboard popup
+density = "normal"   # compact | normal | spacious
+```
+
+```toml
+# ./.sidemux.toml — project-named scripts only (found walking up from cwd)
+[scripts]
+lint = "nx run *:lint"
+dev = { command = "pnpm dev", background = true }
+```
+
+`run { command: "lint" }` resolves the script, names the pane after it, and
+honors its `background` flag. `sidemux init` offers to scaffold the global
+file and picks up scripts as delegation candidates.
+
+Environment variables (in the MCP server config) override both files:
+
+| Variable                    | Default     | Meaning                                                                                                                  |
+| --------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `SIDEMUX_SESSION`           | `smux`      | Workspace session name                                                                                                   |
+| `SIDEMUX_AGENT_ID`          | auto        | Owner id for this MCP agent session; defaults to `CODEX_THREAD_ID`, then a stable hash of the server's working directory |
+| `SIDEMUX_KEYBINDS`          | on          | Install the dashboard keybind when a client is attached; `0` = off                                                       |
+| `SIDEMUX_DASHBOARD_KEY`     | `e`         | tmux prefix key that opens the sidemux workspace dashboard popup                                                         |
+| `SIDEMUX_DASHBOARD_DENSITY` | `normal`    | Dashboard spacing: `compact`, `normal`, or `spacious`                                                                    |
+| `SIDEMUX_MANAGED_ONLY`      | off         | `1` = write operations restricted to sidemux-created panes                                                               |
+| `SIDEMUX_SHELL`             | auto        | Force the sentinel dialect (`fish` or anything POSIX)                                                                    |
+| `SIDEMUX_TMUX_SOCKET`       | default     | tmux `-L` socket name                                                                                                    |
+| `SIDEMUX_MAX_OUTPUT_BYTES`  | `8192`      | Base cap on read sizes                                                                                                   |
+| `SIDEMUX_REUSE_PANES`       | on          | Reruns reuse the pane that last ran the same command (strict affinity); `0` = new pane per run                           |
+| `SIDEMUX_PANE_SHELL`        | login shell | Shell command for created panes (e.g. `sh`)                                                                              |
+| `SIDEMUX_PANE_HEADER`       | on          | Show a `command · %id` header on sidemux panes only (tmux pane border); `0` = off                                        |
+| `SIDEMUX_CLOSE_ON_SUCCESS`  | off         | `1` = auto-close a pane after its command exits `0` (failed panes stay up)                                               |
+| `SIDEMUX_IDLE_PANE_TTL_MS`  | `900000`    | How long an idle finished one-shot pane survives before garbage collection (15 min)                                      |
+
+Every variable except `SIDEMUX_AGENT_ID` has a config-file equivalent — see
+[docs/configuration.md](docs/configuration.md) for the mapping.
 
 ## Designed-in behavior
 
 - **Panes open in the agent's working directory.** Every pane sidemux creates
   is anchored with `split-window -c <cwd>`; reused panes get a `cd` prefix
   when the target directory differs.
-- **Inside tmux** (the usual case), sidemux opens a full-span bar on one edge
-  so you can watch the work live — a full-width strip below by default, or set
-  `SIDEMUX_LAYOUT` to `right`/`left`/`top` (and `SIDEMUX_PANE_SIZE` for the
-  thickness). The bar spans the whole window regardless of other splits, and
-  additional concurrent panes tile within it rather than shrinking the agent
-  further. When the server is launched without the agent's tmux env (`$TMUX_PANE`
-  unset) but a client is attached, sidemux finds that session via `list-clients`
-  and hosts a switchable `smux` window there instead; with nothing attached
-  (headless/CI) it falls back to a detached `smux` session you can `tmux attach
-  -t smux` to watch. The token-saving `run`/`wait`/`read` loop works the same in
-  every case.
+- **Panes live in a dedicated sidemux workspace.** `run` creates or
+  reuses one window per AI agent session in `SIDEMUX_SESSION` (`smux`). The
+  window tab is a short owner id; `name`/`project` remains the pane label and
+  reusable target. Concurrent jobs from the same agent split inside that owner
+  window. With no attached client (headless/CI), the workspace is detached and
+  can be watched with `tmux attach -t smux`.
+- **Pane reuse is strict affinity.** A run with a `name` reuses that named
+  pane; an unnamed run reuses only the idle pane that last ran the exact same
+  command (most-recently-used wins). No match means a new pane — sidemux never
+  steals another command's pane and never touches other agents' panes.
+- **Finished panes garbage-collect themselves.** Idle one-shot panes
+  (including failed ones) are collected once older than
+  `SIDEMUX_IDLE_PANE_TTL_MS` (default 15 minutes); background panes and busy
+  panes are never collected. Windows belonging to dead sidemux servers are
+  swept opportunistically. GC is event-driven — it piggybacks on tool calls,
+  no timers. Restarting the MCP server in the same project reclaims its
+  previous panes (the default agent id is derived from the working directory).
+- **Passive status is visible in tmux and via MCP.** Pane headers show the
+  command and pane id; window names get compact status markers; `status`
+  returns the same workspace grouped by tab. When a human tmux client is
+  attached, `SIDEMUX_KEYBINDS=1` makes `Prefix e` open the sidemux dashboard
+  popup. If no sidemux workspace exists yet, the popup says so; otherwise it
+  switches only after you select an item with Enter. The dashboard table shows
+  the current script, cwd, owner metadata, and ids when there is room; narrower
+  layouts keep script, cwd basename, and ids visible.
 - **Ctrl-C has no exit code.** Interrupting aborts the shell's entire command
   list, sentinel included, so interrupted jobs receive a synthetic `130`.
 - **Long waits vs. client timeouts:** `wait` returns `status: "timeout"`
@@ -257,6 +316,12 @@ pnpm bench       # token-savings benchmark of this repo's own commands (needs tm
 
 Integration tests never touch your real tmux server — they run on isolated
 `-L smux-test-*` sockets with `-f /dev/null`.
+
+## Contributing
+
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for setup,
+commands, code standards, and the PR/release flow. All participation is
+covered by the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## License
 

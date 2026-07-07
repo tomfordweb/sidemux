@@ -1,24 +1,25 @@
-import { createHash } from 'node:crypto';
-import { isKnownShell } from '../config.js';
-import type { TmuxClient } from '../tmux/client.js';
-import type { Job } from '../types.js';
-import { JobManager, SENTINEL_MARKER } from './jobs.js';
+import { createHash } from "node:crypto";
+import { isKnownShell } from "../config.js";
+import type { TmuxClient } from "../tmux/client.js";
+import type { Job } from "../types.js";
+import { JobManager, SENTINEL_MARKER } from "./jobs.js";
+import { clampCaptureStart, totalLines } from "./shared.js";
 
-export type WaitUntil = 'exit' | 'pattern' | 'idle';
+export type WaitUntil = "exit" | "pattern" | "idle";
 
 export interface WaitOptions {
   until: WaitUntil;
   /** Regex source, required when until = 'pattern'. */
-  pattern?: string;
+  pattern?: string | undefined;
   /** Stability window for until = 'idle'. */
-  idleMs?: number;
-  timeoutMs?: number;
+  idleMs?: number | undefined;
+  timeoutMs?: number | undefined;
   /** Called every ~10s of waiting; hook for MCP progress notifications. */
-  onProgress?: (elapsedMs: number) => void;
+  onProgress?: ((elapsedMs: number) => void) | undefined;
 }
 
 export interface WaitResult {
-  status: WaitUntil | 'timeout';
+  status: WaitUntil | "timeout";
   exitCode: number | null;
   matchedLine: string | null;
   elapsedMs: number;
@@ -34,7 +35,8 @@ const NON_SHELL_IDLE_FACTOR = 3;
 /** How many trailing lines to scan for the exit sentinel each poll. */
 const SENTINEL_SCAN_LINES = 15;
 
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms: number): Promise<void> =>
+  new Promise((r) => setTimeout(r, ms));
 
 /**
  * Server-side blocking wait. The agent spends one tool call; sidemux does
@@ -48,13 +50,17 @@ export async function waitFor(
   options: WaitOptions,
 ): Promise<WaitResult> {
   const { until, idleMs = 2000, timeoutMs = 120_000, onProgress } = options;
-  const regex = options.pattern !== undefined ? new RegExp(options.pattern) : null;
-  if (until === 'pattern' && !regex) {
+  const regex =
+    options.pattern !== undefined ? new RegExp(options.pattern) : null;
+  if (until === "pattern" && !regex) {
     throw new Error("wait: 'pattern' is required when until = 'pattern'");
   }
-  if (until === 'exit' && !job) {
-    throw new Error("wait: until = 'exit' requires a job (launch via run first)");
+  if (until === "exit" && !job) {
+    throw new Error(
+      "wait: until = 'exit' requires a job (launch via run first)",
+    );
   }
+  const exitJob = job;
 
   const startedAt = Date.now();
   let pollMs = POLL_INITIAL_MS;
@@ -63,13 +69,18 @@ export async function waitFor(
   // pattern scans start where the job started, or where the wait started.
   let patternScanFrom: number | null = null;
 
-  let idleHash = '';
+  let idleHash = "";
   let idleStableSince = Date.now();
 
   for (;;) {
     const elapsed = Date.now() - startedAt;
     if (elapsed >= timeoutMs) {
-      return { status: 'timeout', exitCode: job?.exitCode ?? null, matchedLine: null, elapsedMs: elapsed };
+      return {
+        status: "timeout",
+        exitCode: job?.exitCode ?? null,
+        matchedLine: null,
+        elapsedMs: elapsed,
+      };
     }
     if (onProgress && Date.now() - lastProgressAt >= PROGRESS_EVERY_MS) {
       lastProgressAt = Date.now();
@@ -77,35 +88,45 @@ export async function waitFor(
     }
 
     const state = await client.paneState(paneId);
-    const currentTotal = state.historySize + state.cursorY + 1;
+    const currentTotal = totalLines(state);
 
-    if (until === 'exit') {
-      const scanStart = Math.max(-state.historySize, state.cursorY - SENTINEL_SCAN_LINES + 1);
+    if (until === "exit") {
+      const scanStart = clampCaptureStart(
+        state,
+        state.cursorY - SENTINEL_SCAN_LINES + 1,
+      );
       const tail = await client.capturePane(paneId, scanStart, state.cursorY);
-      jobs.applyScan(job!, tail);
-      if (job!.status !== 'running') {
+      if (!exitJob) {
+        throw new Error("wait: until = 'exit' requires a job");
+      }
+      jobs.applyScan(exitJob, tail);
+      if (exitJob.status !== "running") {
         return {
-          status: 'exit',
-          exitCode: job!.exitCode,
+          status: "exit",
+          exitCode: exitJob.exitCode,
           matchedLine: null,
           elapsedMs: Date.now() - startedAt,
         };
       }
-    } else if (until === 'pattern') {
-      if (patternScanFrom === null) {
-        patternScanFrom = job ? job.baselineLines : currentTotal - state.paneHeight;
-      }
-      const scanStart = Math.max(-state.historySize, patternScanFrom - state.historySize);
+    } else if (until === "pattern") {
+      patternScanFrom ??= job
+        ? job.baselineLines
+        : currentTotal - state.paneHeight;
+      const scanStart = clampCaptureStart(
+        state,
+        patternScanFrom - state.historySize,
+      );
       const lines = await client.capturePane(paneId, scanStart, state.cursorY);
       // Skip the echoed launch line (and any completed sentinel): both carry the
       // SENTINEL_MARKER and neither is real output, so a pattern that also
       // appears in the launched command can't match the echo instead of stdout.
       const matched = lines.find(
-        (line) => !line.includes(SENTINEL_MARKER) && regex!.test(line),
+        (line) =>
+          !line.includes(SENTINEL_MARKER) && (regex?.test(line) ?? false),
       );
       if (matched !== undefined) {
         return {
-          status: 'pattern',
+          status: "pattern",
           exitCode: null,
           matchedLine: matched,
           elapsedMs: Date.now() - startedAt,
@@ -113,10 +134,10 @@ export async function waitFor(
       }
     } else {
       const screen = await client.capturePane(paneId);
-      const hash = createHash('sha1')
-        .update(screen.join('\n'))
+      const hash = createHash("sha1")
+        .update(screen.join("\n"))
         .update(state.currentCommand)
-        .digest('hex');
+        .digest("hex");
       if (hash !== idleHash) {
         idleHash = hash;
         idleStableSince = Date.now();
@@ -126,7 +147,7 @@ export async function waitFor(
           : idleMs * NON_SHELL_IDLE_FACTOR;
         if (Date.now() - idleStableSince >= required) {
           return {
-            status: 'idle',
+            status: "idle",
             exitCode: null,
             matchedLine: null,
             elapsedMs: Date.now() - startedAt,

@@ -50,10 +50,15 @@ Optional configuration is passed through the `environment` key:
 
 ## Notes
 
-- The tmux behavior is the same as everywhere else: inside tmux, sidemux
-  splits a sidecar pane. Without the agent's tmux env, it hosts a switchable
-  `smux` window in an attached tmux session when possible; with no attached
-  client, it creates a detached `smux` session.
+- sidemux runs commands in the `smux` workspace session. Runs are grouped
+  by `name`/`project` into tmux windows; with no attached client, the workspace
+  is detached — attach with `tmux attach -t smux` to watch, or press `Prefix e`
+  from any tmux session for the dashboard popup (tmux ≥ 3.2).
+- Personal settings that should apply to every project (session name,
+  dashboard key/density, TTLs, …) belong in the global config file
+  `~/.config/sidemux/config.toml` rather than per-project `environment`
+  blocks; env vars override the file when both are set. See
+  [configuration.md](./configuration.md).
 - If you use OpenCode rules files (`AGENTS.md`), the "loop" section of
   [skills/tmux-delegate/SKILL.md](../skills/tmux-delegate/SKILL.md) is a
   ready-made paste that teaches the workflow explicitly.

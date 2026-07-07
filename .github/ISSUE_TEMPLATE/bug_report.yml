@@ -1,0 +1,80 @@
+name: Bug report
+description: Something in sidemux doesn't work as documented
+labels: [bug]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of the bug.
+      placeholder: What went wrong?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Minimal steps to reproduce the behavior.
+      placeholder: |
+        1. Configure sidemux with ...
+        2. Ask the agent to run ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What you expected to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What actually happened instead.
+    validations:
+      required: true
+  - type: input
+    id: sidemux-version
+    attributes:
+      label: sidemux version
+      placeholder: e.g. 0.1.1 (or a commit sha for a local build)
+    validations:
+      required: true
+  - type: input
+    id: tmux-version
+    attributes:
+      label: tmux version
+      description: Output of `tmux -V`.
+      placeholder: e.g. tmux 3.4
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: e.g. Ubuntu 24.04, macOS 15
+    validations:
+      required: true
+  - type: dropdown
+    id: agent-client
+    attributes:
+      label: Agent client
+      options:
+        - Claude Code
+        - Codex
+        - opencode
+        - Other (describe below)
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: >
+        MCP server stderr, tool-call results, or pane output. This is
+        automatically formatted as code, no backticks needed.
+      render: shell
+    validations:
+      required: false

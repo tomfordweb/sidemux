@@ -1,4 +1,5 @@
-export type JobStatus = 'running' | 'done' | 'failed' | 'unknown';
+export type JobStatus = "running" | "done" | "failed" | "unknown";
+export type ManagedPaneClass = "oneshot" | "persistent";
 
 export interface PaneState {
   historySize: number;
@@ -12,11 +13,40 @@ export interface PaneState {
 export interface PaneInfo {
   paneId: string;
   target: string;
+  sessionName: string;
+  windowIndex: string;
+  windowName: string;
   title: string;
   currentCommand: string;
+  currentPath: string;
   width: number;
   height: number;
+  windowId: string;
   managed: boolean;
+  managedName: string | null;
+  lastCommand: string | null;
+  busy: boolean;
+  paneClass: ManagedPaneClass | null;
+  lastUsedAt: number | null;
+  lastExitCode: number | null;
+  agentId: string | null;
+  /** Pid of the sidemux server that last wrote this pane's metadata. */
+  serverPid: number | null;
+  /** Agent-supplied context for the pane's current run ("<stage> due to <reason>"). */
+  description: string | null;
+}
+
+export interface WindowInfo {
+  sessionName: string;
+  windowIndex: string;
+  windowId: string;
+  windowName: string;
+  activePaneId: string;
+  agentId: string | null;
+  serverPid: number | null;
+  lastSeenAt: number | null;
+  /** Encoded token-savings stats written by the owning server (JSON). */
+  statsJson: string | null;
 }
 
 export interface Job {

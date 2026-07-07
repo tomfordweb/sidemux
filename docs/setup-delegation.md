@@ -62,8 +62,14 @@ re-run `sidemux init --commands ...` so sidemux writes that block for you.
 - `go.mod` → `go test ./...`, `go vet ./...`, `go build ./...`
 - `Cargo.toml` → `cargo test`, `cargo clippy`, `cargo build`
 - `Makefile` and `justfile` targets → `make test`, `just test`, …
+- `.sidemux.toml` `[scripts]` entries (see
+  [configuration.md](./configuration.md)) — project-named sidemux scripts are
+  offered as delegation candidates too
 
-**Nothing detected?** Init still offers to install a *generic* directive block
+When run interactively, `init` also offers to scaffold the global config file
+`~/.config/sidemux/config.toml` if it doesn't exist yet.
+
+**Nothing detected?** Init still offers to install a _generic_ directive block
 that tells the agent to route heavy commands — test suites, linters, type
 checkers, builds, E2E runs, dev servers — through sidemux by theme. The guard
 has nothing to block until you add commands (`--commands`, or `sidemux init
@@ -71,13 +77,13 @@ has nothing to block until you add commands (`--commands`, or `sidemux init
 
 ## What it writes
 
-| Path | Purpose |
-|------|---------|
+| Path                          | Purpose                                                       |
+| ----------------------------- | ------------------------------------------------------------- |
 | `.sidemux/delegate-guard.mjs` | Self-contained PreToolUse guard (plain Node, no dependencies) |
-| `.sidemux/delegate.json` | The list of delegated commands the guard reads |
-| `.claude/settings.json` | A `PreToolUse` Bash matcher that runs the guard |
-| `CLAUDE.md`, `AGENTS.md` | A marked delegation block (for clients without hooks) |
-| `.mcp.json` | *(with `--mcp`)* the sidemux MCP server entry |
+| `.sidemux/delegate.json`      | The list of delegated commands the guard reads                |
+| `.claude/settings.json`       | A `PreToolUse` Bash matcher that runs the guard               |
+| `CLAUDE.md`, `AGENTS.md`      | A marked delegation block (for clients without hooks)         |
+| `.mcp.json`                   | _(with `--mcp`)_ the sidemux MCP server entry                 |
 
 All writes are idempotent and marker-delimited: re-running updates them in
 place, and `sidemux uninstall` removes exactly what was added — nothing more.
@@ -97,7 +103,7 @@ sidemux init --sync --yes    # refresh only; new candidates are listed, not adde
 Sync keeps your recorded command list (including anything added via
 `--commands`), asks only about commands detected since the last init, touches
 `.mcp.json` only if a sidemux entry already exists, and leaves that entry's
-env (layout, pane size) alone.
+`env` block alone.
 
 ## Uninstalling
 

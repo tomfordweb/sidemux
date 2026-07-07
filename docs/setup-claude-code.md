@@ -69,5 +69,14 @@ Inside a tmux session, ask Claude:
 
 > run `sleep 5 && echo hello from sidemux` in a pane
 
-You should see a pane split below, the command run there, and Claude report
-exit 0 with a short tail — with no polling turns in between.
+You should see the command run in the `smux` workspace session, and Claude
+report exit 0 with a short tail — with no polling turns in between. Watch the
+output by attaching (`tmux attach -t smux`) or pressing `Prefix e` for the
+dashboard popup.
+
+## Personal settings
+
+Instead of repeating env vars in every project's MCP entry, put personal
+settings (session name, dashboard key/density, TTLs, …) in the global config
+file `~/.config/sidemux/config.toml` — env vars still win when set. See
+[configuration.md](./configuration.md).
