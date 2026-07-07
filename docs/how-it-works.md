@@ -58,7 +58,7 @@ every poll:
 
 - If the content is unchanged for `idle_ms` **and** the pane's foreground
   process is a shell (bash/zsh/fish/sh/dash/ksh), the pane is declared idle.
-- If the foreground process is *not* a shell (a compiler, REPL, or TUI), the
+- If the foreground process is _not_ a shell (a compiler, REPL, or TUI), the
   quiet window is tripled (`idle_ms × 3`) before idle is declared, so a
   compiler pausing on a large translation unit doesn't produce a false
   positive.
@@ -74,7 +74,7 @@ totalLines = history_size + cursor_y + 1
 ```
 
 After every read it stores `totalLines` plus a hash of the ≤3 lines just
-*before* the cursor — the **anchor**. The cursor line itself is the live
+_before_ the cursor — the **anchor**. The cursor line itself is the live
 prompt and mutates in place when the next command is typed, so it is excluded.
 The next read then:
 
@@ -135,7 +135,7 @@ backoff costs microseconds per tick and handles every case uniformly.
   `list_panes`), and sidemux also records the same label in a private
   `@smux_label` pane option. When `SIDEMUX_PANE_HEADER` is on (the default),
   that label is shown as a tmux pane-border header so you can see at a glance
-  which pane runs what. Because `pane-border-status` is a *window* option (it
+  which pane runs what. Because `pane-border-status` is a _window_ option (it
   would otherwise label every pane in the window), the `pane-border-format` is
   conditioned on `@smux_label` being set — the human's own editor and shell
   panes have no such option and keep their normal borders. Keying on the
@@ -143,7 +143,7 @@ backoff costs microseconds per tick and handles every case uniformly.
   every prompt (an OSC escape setting it to the cwd), which would otherwise
   blank the header — the option is sidemux's alone and can't be clobbered. The
   border is enabled per owner window, and each window's `pane-border-status`
-  is restored to the default when the last managed pane *in that window* is
+  is restored to the default when the last managed pane _in that window_ is
   removed — whether it exited and closed, was killed, or was garbage-collected
   (`SIDEMUX_PANE_HEADER=0` leaves windows untouched).
 - External workspace window names include compact status markers, and the
@@ -157,7 +157,7 @@ backoff costs microseconds per tick and handles every case uniformly.
   does not. Headless detached sessions skip key bindings.
 - **Reuse is strict affinity** (`SIDEMUX_REUSE_PANES=0` disables it). A run
   with a `name` reuses that named pane. An unnamed run reuses only the idle
-  pane that last ran the *exact same command* — so `pnpm test` keeps landing
+  pane that last ran the _exact same command_ — so `pnpm test` keeps landing
   in its own pane — with the most-recently-used pane winning when several
   match. No match means a new pane: grabbing an arbitrary idle pane would
   steal another command's pane and destroy the rerun-lands-in-the-same-pane
@@ -176,7 +176,7 @@ Cleanup is **event-driven**: it piggybacks on tool calls (throttled to at most
 once per short interval) — there are no timers, and an idle server does no
 background work.
 
-- **Idle-pane TTL.** A finished one-shot pane — including a *failed* one, whose
+- **Idle-pane TTL.** A finished one-shot pane — including a _failed_ one, whose
   output stays inspectable until then — is collected once its last use is older
   than `SIDEMUX_IDLE_PANE_TTL_MS` (default 15 minutes). Busy panes,
   persistent (background) panes, and other agents' panes are never touched.

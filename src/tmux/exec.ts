@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile } from "node:child_process";
 
 const MAX_BUFFER = 10 * 1024 * 1024;
 
@@ -9,7 +9,7 @@ export class TmuxError extends Error {
     readonly stderr: string,
   ) {
     super(message);
-    this.name = 'TmuxError';
+    this.name = "TmuxError";
   }
 }
 
@@ -25,22 +25,31 @@ export interface RunnerOptions {
 
 export function createTmuxRunner(options: RunnerOptions = {}): TmuxRunner {
   const prefix: string[] = [];
-  if (options.socketName) {prefix.push('-L', options.socketName);}
-  if (options.configFile) {prefix.push('-f', options.configFile);}
+  if (options.socketName) {
+    prefix.push("-L", options.socketName);
+  }
+  if (options.configFile) {
+    prefix.push("-f", options.configFile);
+  }
 
   return (args) =>
     new Promise((resolve, reject) => {
       const fullArgs = [...prefix, ...args];
-      execFile('tmux', fullArgs, { maxBuffer: MAX_BUFFER }, (error, stdout, stderr) => {
-        if (error) {
-          const enoent = (error as NodeJS.ErrnoException).code === 'ENOENT';
-          const message = enoent
-            ? 'tmux is not installed or not on PATH — install tmux to use sidemux'
-            : `tmux ${args[0] ?? ''} failed: ${stderr.trim() || error.message}`;
-          reject(new TmuxError(message, fullArgs, stderr));
-          return;
-        }
-        resolve(stdout);
-      });
+      execFile(
+        "tmux",
+        fullArgs,
+        { maxBuffer: MAX_BUFFER },
+        (error, stdout, stderr) => {
+          if (error) {
+            const enoent = (error as NodeJS.ErrnoException).code === "ENOENT";
+            const message = enoent
+              ? "tmux is not installed or not on PATH — install tmux to use sidemux"
+              : `tmux ${args[0] ?? ""} failed: ${stderr.trim() || error.message}`;
+            reject(new TmuxError(message, fullArgs, stderr));
+            return;
+          }
+          resolve(stdout);
+        },
+      );
     });
 }

@@ -7,7 +7,11 @@
  * memory and mirrors its map into a tmux window option so the dashboard (a
  * separate popup process) can sum across agents.
  */
-import { classifyCommandRole, ROLE_ORDER, type CommandRole } from '../init/detect.js';
+import {
+  classifyCommandRole,
+  ROLE_ORDER,
+  type CommandRole,
+} from "../init/detect.js";
 
 export interface RoleStat {
   /** Bytes the agent would have consumed inline (full region). */
@@ -44,14 +48,14 @@ export class StatsTracker {
 }
 
 function isRoleStat(value: unknown): value is RoleStat {
-  if (typeof value !== 'object' || value === null) {
+  if (typeof value !== "object" || value === null) {
     return false;
   }
   const candidate = value as Record<string, unknown>;
   return (
-    typeof candidate.ai === 'number' &&
-    typeof candidate.smux === 'number' &&
-    typeof candidate.responses === 'number'
+    typeof candidate.ai === "number" &&
+    typeof candidate.smux === "number" &&
+    typeof candidate.responses === "number"
   );
 }
 
@@ -66,14 +70,18 @@ export function parseStats(encoded: string | null): WorkspaceStats {
   } catch {
     return {};
   }
-  if (typeof raw !== 'object' || raw === null) {
+  if (typeof raw !== "object" || raw === null) {
     return {};
   }
   const stats: WorkspaceStats = {};
   for (const role of ROLE_ORDER) {
     const value = (raw as Record<string, unknown>)[role];
     if (isRoleStat(value)) {
-      stats[role] = { ai: value.ai, smux: value.smux, responses: value.responses };
+      stats[role] = {
+        ai: value.ai,
+        smux: value.smux,
+        responses: value.responses,
+      };
     }
   }
   return stats;
@@ -83,7 +91,10 @@ export function parseStats(encoded: string | null): WorkspaceStats {
 export function mergeStats(encodedList: (string | null)[]): WorkspaceStats {
   const merged: WorkspaceStats = {};
   for (const encoded of encodedList) {
-    for (const [role, stat] of Object.entries(parseStats(encoded)) as [CommandRole, RoleStat][]) {
+    for (const [role, stat] of Object.entries(parseStats(encoded)) as [
+      CommandRole,
+      RoleStat,
+    ][]) {
       const entry = merged[role] ?? { ai: 0, smux: 0, responses: 0 };
       entry.ai += stat.ai;
       entry.smux += stat.smux;

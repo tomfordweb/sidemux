@@ -1,10 +1,10 @@
-import { createHash } from 'node:crypto';
-import type { FileConfig } from './config-file.js';
+import { createHash } from "node:crypto";
+import type { FileConfig } from "./config-file.js";
 
-export type ShellDialect = 'posix' | 'fish';
+export type ShellDialect = "posix" | "fish";
 
 /** Dashboard spacing mode. */
-export type DashboardDensity = 'compact' | 'normal' | 'spacious';
+export type DashboardDensity = "compact" | "normal" | "spacious";
 
 export interface Config {
   /** Session name hosting the sidemux workspace (one window per agent). */
@@ -51,27 +51,38 @@ export interface Config {
   agentLabel: string;
 }
 
-const FISH_LIKE = new Set(['fish']);
-const POSIX_LIKE = new Set(['bash', 'zsh', 'sh', 'dash', 'ksh']);
+const FISH_LIKE = new Set(["fish"]);
+const POSIX_LIKE = new Set(["bash", "zsh", "sh", "dash", "ksh"]);
 
-const DASHBOARD_DENSITIES = new Set<DashboardDensity>(['compact', 'normal', 'spacious']);
+const DASHBOARD_DENSITIES = new Set<DashboardDensity>([
+  "compact",
+  "normal",
+  "spacious",
+]);
 
 export const DEFAULT_IDLE_PANE_TTL_MS = 15 * 60 * 1000;
 
 /** Parse SIDEMUX_DASHBOARD_DENSITY; unknown values warn and fall back to normal. */
 function parseDashboardDensity(raw: string | undefined): DashboardDensity {
   const value = raw?.trim().toLowerCase();
-  if (!value) {return 'normal';}
-  if (DASHBOARD_DENSITIES.has(value as DashboardDensity)) {return value as DashboardDensity;}
+  if (!value) {
+    return "normal";
+  }
+  if (DASHBOARD_DENSITIES.has(value as DashboardDensity)) {
+    return value as DashboardDensity;
+  }
   console.error(
     `sidemux: ignoring invalid SIDEMUX_DASHBOARD_DENSITY="${raw}" (use compact|normal|spacious); using normal`,
   );
-  return 'normal';
+  return "normal";
 }
 
 function shortAgentLabel(agentId: string): string {
-  const clean = agentId.trim().replace(/[^A-Za-z0-9_.-]+/g, '-').replace(/^-+|-+$/g, '');
-  const uuidPrefix = (/^[0-9a-fA-F]{8}(?=-)/.exec(clean))?.[0];
+  const clean = agentId
+    .trim()
+    .replace(/[^A-Za-z0-9_.-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  const uuidPrefix = /^[0-9a-fA-F]{8}(?=-)/.exec(clean)?.[0];
   return (uuidPrefix ?? clean).slice(0, 12) || `pid-${String(process.pid)}`;
 }
 
@@ -83,15 +94,24 @@ function shortAgentLabel(agentId: string): string {
  */
 function parseAgentId(env: NodeJS.ProcessEnv, defaultCwd: string): string {
   const explicit = env.SIDEMUX_AGENT_ID?.trim() || env.CODEX_THREAD_ID?.trim();
-  if (explicit) {return explicit;}
-  const hash = createHash('sha256').update(defaultCwd).digest('hex').slice(0, 8);
+  if (explicit) {
+    return explicit;
+  }
+  const hash = createHash("sha256")
+    .update(defaultCwd)
+    .digest("hex")
+    .slice(0, 8);
   return `cwd-${hash}`;
 }
 
 export function shellDialectFromCommand(command: string): ShellDialect | null {
-  const name = command.split('/').pop() ?? command;
-  if (FISH_LIKE.has(name)) {return 'fish';}
-  if (POSIX_LIKE.has(name)) {return 'posix';}
+  const name = command.split("/").pop() ?? command;
+  if (FISH_LIKE.has(name)) {
+    return "fish";
+  }
+  if (POSIX_LIKE.has(name)) {
+    return "posix";
+  }
   return null;
 }
 
@@ -110,35 +130,75 @@ export function loadConfig(
   defaultCwd: string = process.cwd(),
   file: FileConfig = {},
 ): Config {
-  const shellRaw = (env.SIDEMUX_SHELL ?? file.shell ?? '').trim().toLowerCase();
+  const shellRaw = (env.SIDEMUX_SHELL ?? file.shell ?? "").trim().toLowerCase();
   let shell: ShellDialect | null = null;
-  if (shellRaw === 'fish') {shell = 'fish';}
-  else if (shellRaw !== '') {shell = 'posix';}
+  if (shellRaw === "fish") {
+    shell = "fish";
+  } else if (shellRaw !== "") {
+    shell = "posix";
+  }
 
-  const maxBytes = Number.parseInt(env.SIDEMUX_MAX_OUTPUT_BYTES ?? '', 10);
-  const idleTtl = Number.parseInt(env.SIDEMUX_IDLE_PANE_TTL_MS ?? '', 10);
+  const maxBytes = Number.parseInt(env.SIDEMUX_MAX_OUTPUT_BYTES ?? "", 10);
+  const idleTtl = Number.parseInt(env.SIDEMUX_IDLE_PANE_TTL_MS ?? "", 10);
   const fileTtl = file.idlePaneTtlMs;
   const agentId = parseAgentId(env, defaultCwd);
 
-  const boolSetting = (raw: string | undefined, fileValue: boolean | undefined, fallback: boolean, truthy: (value: string) => boolean): boolean => {
-    if (raw !== undefined) {return truthy(raw);}
+  const boolSetting = (
+    raw: string | undefined,
+    fileValue: boolean | undefined,
+    fallback: boolean,
+    truthy: (value: string) => boolean,
+  ): boolean => {
+    if (raw !== undefined) {
+      return truthy(raw);
+    }
     return fileValue ?? fallback;
   };
 
   return {
-    sessionName: env.SIDEMUX_SESSION?.trim() || file.session?.trim() || 'smux',
-    keybinds: boolSetting(env.SIDEMUX_KEYBINDS, file.keybinds, true, (v) => v !== '0'),
-    dashboardKey: env.SIDEMUX_DASHBOARD_KEY?.trim() || file.dashboardKey?.trim() || 'e',
-    dashboardDensity: parseDashboardDensity(env.SIDEMUX_DASHBOARD_DENSITY ?? file.dashboardDensity),
-    managedOnly: boolSetting(env.SIDEMUX_MANAGED_ONLY, file.managedOnly, false, (v) => v === '1'),
+    sessionName: env.SIDEMUX_SESSION?.trim() || file.session?.trim() || "smux",
+    keybinds: boolSetting(
+      env.SIDEMUX_KEYBINDS,
+      file.keybinds,
+      true,
+      (v) => v !== "0",
+    ),
+    dashboardKey:
+      env.SIDEMUX_DASHBOARD_KEY?.trim() || file.dashboardKey?.trim() || "e",
+    dashboardDensity: parseDashboardDensity(
+      env.SIDEMUX_DASHBOARD_DENSITY ?? file.dashboardDensity,
+    ),
+    managedOnly: boolSetting(
+      env.SIDEMUX_MANAGED_ONLY,
+      file.managedOnly,
+      false,
+      (v) => v === "1",
+    ),
     shell,
     socketName: env.SIDEMUX_TMUX_SOCKET?.trim() || file.socket?.trim() || null,
     maxOutputBytes:
-      Number.isFinite(maxBytes) && maxBytes > 0 ? maxBytes : file.maxOutputBytes ?? 8192,
-    reusePanes: boolSetting(env.SIDEMUX_REUSE_PANES, file.reusePanes, true, (v) => v !== '0'),
+      Number.isFinite(maxBytes) && maxBytes > 0
+        ? maxBytes
+        : (file.maxOutputBytes ?? 8192),
+    reusePanes: boolSetting(
+      env.SIDEMUX_REUSE_PANES,
+      file.reusePanes,
+      true,
+      (v) => v !== "0",
+    ),
     paneShell: env.SIDEMUX_PANE_SHELL?.trim() || file.paneShell?.trim() || null,
-    paneHeader: boolSetting(env.SIDEMUX_PANE_HEADER, file.paneHeader, true, (v) => v !== '0'),
-    closeOnSuccess: boolSetting(env.SIDEMUX_CLOSE_ON_SUCCESS, file.closeOnSuccess, false, (v) => v === '1'),
+    paneHeader: boolSetting(
+      env.SIDEMUX_PANE_HEADER,
+      file.paneHeader,
+      true,
+      (v) => v !== "0",
+    ),
+    closeOnSuccess: boolSetting(
+      env.SIDEMUX_CLOSE_ON_SUCCESS,
+      file.closeOnSuccess,
+      false,
+      (v) => v === "1",
+    ),
     idlePaneTtlMs:
       Number.isFinite(idleTtl) && idleTtl >= 0
         ? idleTtl

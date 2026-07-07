@@ -6,7 +6,7 @@ description: Delegate long-running or observable commands to a tmux sidecar pane
 # Delegate commands to tmux with sidemux
 
 sidemux moves command execution into a tmux pane the user can watch, and moves
-the *waiting* into the MCP server. You spend one tool call where a polling loop
+the _waiting_ into the MCP server. You spend one tool call where a polling loop
 would spend ten, and you read output incrementally instead of dumping terminals.
 
 ## When to delegate

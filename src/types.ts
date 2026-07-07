@@ -1,5 +1,5 @@
-export type JobStatus = 'running' | 'done' | 'failed' | 'unknown';
-export type ManagedPaneClass = 'oneshot' | 'persistent';
+export type JobStatus = "running" | "done" | "failed" | "unknown";
+export type ManagedPaneClass = "oneshot" | "persistent";
 
 export interface PaneState {
   historySize: number;

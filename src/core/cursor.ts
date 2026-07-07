@@ -1,6 +1,6 @@
-import { createHash } from 'node:crypto';
-import type { TmuxClient } from '../tmux/client.js';
-import { clampCaptureStart, totalLines } from './shared.js';
+import { createHash } from "node:crypto";
+import type { TmuxClient } from "../tmux/client.js";
+import { clampCaptureStart, totalLines } from "./shared.js";
 
 interface CursorState {
   /** Absolute line count (history_size + cursor_y + 1) at last read. */
@@ -23,7 +23,7 @@ export interface IncrementalRead {
 const ANCHOR_SPAN = 3;
 
 function hashLines(lines: string[]): string {
-  return createHash('sha1').update(lines.join('\n')).digest('hex');
+  return createHash("sha1").update(lines.join("\n")).digest("hex");
 }
 
 /**
@@ -57,16 +57,23 @@ export class CursorTracker {
     const stored = this.cursors.get(paneId);
 
     const resetRead = async (): Promise<IncrementalRead> => {
-      const start = clampCaptureStart(state, state.cursorY - fallbackTailLines + 1);
+      const start = clampCaptureStart(
+        state,
+        state.cursorY - fallbackTailLines + 1,
+      );
       const lines = await client.capturePane(paneId, start, state.cursorY);
       await this.advance(client, paneId, state.historySize, state.cursorY);
       return { lines, cursorReset: true, totalLines: currentTotal };
     };
 
-    if (!stored) {return resetRead();}
+    if (!stored) {
+      return resetRead();
+    }
 
     // Screen cleared or history vanished: absolute count went backwards.
-    if (currentTotal < stored.totalLines) {return resetRead();}
+    if (currentTotal < stored.totalLines) {
+      return resetRead();
+    }
 
     // Validate the anchor: the lines just before the old cursor must match
     // what we hashed last time, otherwise scrollback rotated underneath our
@@ -80,7 +87,9 @@ export class CursorTracker {
         anchorStartAbs - state.historySize,
         anchorEndAbs - state.historySize,
       );
-      if (hashLines(anchorLines) !== stored.anchorHash) {return resetRead();}
+      if (hashLines(anchorLines) !== stored.anchorHash) {
+        return resetRead();
+      }
     }
 
     if (currentTotal === stored.totalLines) {

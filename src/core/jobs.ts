@@ -1,11 +1,11 @@
-import { randomBytes } from 'node:crypto';
-import { isKnownShell, type ShellDialect } from '../config.js';
-import type { TmuxClient } from '../tmux/client.js';
-import type { Job } from '../types.js';
-import { totalLines } from './shared.js';
+import { randomBytes } from "node:crypto";
+import { isKnownShell, type ShellDialect } from "../config.js";
+import type { TmuxClient } from "../tmux/client.js";
+import type { Job } from "../types.js";
+import { totalLines } from "./shared.js";
 
 export function makeJobId(): string {
-  return `j${randomBytes(3).toString('hex')}`;
+  return `j${randomBytes(3).toString("hex")}`;
 }
 
 /**
@@ -14,8 +14,11 @@ export function makeJobId(): string {
  * digit exit code — the completion regex (which requires digits) can never
  * false-positive on the echo.
  */
-export function buildSentinelSuffix(jobId: string, dialect: ShellDialect): string {
-  const exitVar = dialect === 'fish' ? '$status' : '$?';
+export function buildSentinelSuffix(
+  jobId: string,
+  dialect: ShellDialect,
+): string {
+  const exitVar = dialect === "fish" ? "$status" : "$?";
   return `; printf '\\n<<SMUX:%s:%d>>\\n' '${jobId}' ${exitVar}`;
 }
 
@@ -27,8 +30,10 @@ export function sentinelRegex(jobId: string): RegExp {
 export function parseSentinel(lines: string[], jobId: string): number | null {
   const regex = sentinelRegex(jobId);
   for (let i = lines.length - 1; i >= 0; i--) {
-    const match = regex.exec(lines[i] ?? '');
-    if (match?.[1] !== undefined) {return Number.parseInt(match[1], 10);}
+    const match = regex.exec(lines[i] ?? "");
+    if (match?.[1] !== undefined) {
+      return Number.parseInt(match[1], 10);
+    }
   }
   return null;
 }
@@ -52,7 +57,7 @@ export const ANY_SENTINEL = /<<SMUX:j[0-9a-f]+:\d+>>/;
  * output. Used to keep sidemux plumbing out of pattern matches so a wait
  * pattern that is a substring of the launched command can't false-match the echo.
  */
-export const SENTINEL_MARKER = '<<SMUX:';
+export const SENTINEL_MARKER = "<<SMUX:";
 
 /**
  * Matches the sentinel suffix as it appears in the *echoed* command line.
@@ -81,7 +86,9 @@ const SENTINEL_RESIDUE = /\s*;?\s*printf[^\n]*<<SMUX:[^\n]*$|<<SMUX:[^\n]*$/;
 export function scrubOutput(lines: string[]): string[] {
   return lines
     .filter((line) => !ANY_SENTINEL.test(line))
-    .map((line) => line.replace(SENTINEL_ECHO, '').replace(SENTINEL_RESIDUE, ''));
+    .map((line) =>
+      line.replace(SENTINEL_ECHO, "").replace(SENTINEL_RESIDUE, ""),
+    );
 }
 
 /** Finished jobs retained for late read/wait lookups before pruning. */
@@ -99,9 +106,12 @@ export class JobManager {
    */
   private prune(): void {
     const finished = [...this.jobs.values()]
-      .filter((job) => job.status !== 'running')
+      .filter((job) => job.status !== "running")
       .sort((a, b) => a.startedAt - b.startedAt);
-    for (const job of finished.slice(0, Math.max(0, finished.length - MAX_FINISHED_JOBS))) {
+    for (const job of finished.slice(
+      0,
+      Math.max(0, finished.length - MAX_FINISHED_JOBS),
+    )) {
       this.jobs.delete(job.jobId);
     }
   }
@@ -114,7 +124,10 @@ export class JobManager {
   findByPane(paneId: string): Job | undefined {
     let latest: Job | undefined;
     for (const job of this.jobs.values()) {
-      if (job.paneId === paneId && (!latest || job.startedAt >= latest.startedAt)) {
+      if (
+        job.paneId === paneId &&
+        (!latest || job.startedAt >= latest.startedAt)
+      ) {
         latest = job;
       }
     }
@@ -134,7 +147,7 @@ export class JobManager {
     const state = await this.client.paneState(paneId);
     const dialect =
       forcedDialect ??
-      (state.currentCommand.includes('fish') ? 'fish' : 'posix');
+      (state.currentCommand.includes("fish") ? "fish" : "posix");
     if (!isKnownShell(state.currentCommand)) {
       // Not fatal — the pane may be a wrapper — but posix is the safe default.
     }
@@ -146,12 +159,15 @@ export class JobManager {
       command,
       startedAt: Date.now(),
       baselineLines: totalLines(state),
-      status: 'running',
+      status: "running",
       exitCode: null,
     };
 
-    await this.client.sendLiteral(paneId, command + buildSentinelSuffix(jobId, dialect));
-    await this.client.sendKeys(paneId, ['Enter']);
+    await this.client.sendLiteral(
+      paneId,
+      command + buildSentinelSuffix(jobId, dialect),
+    );
+    await this.client.sendKeys(paneId, ["Enter"]);
 
     this.jobs.set(jobId, job);
     this.prune();
@@ -164,8 +180,8 @@ export class JobManager {
    * in the pane. 130 (128+SIGINT) is synthesized to match shell convention.
    */
   markInterrupted(job: Job): Job {
-    if (job.status === 'running') {
-      job.status = 'failed';
+    if (job.status === "running") {
+      job.status = "failed";
       job.exitCode = 130;
     }
     return job;
@@ -173,11 +189,13 @@ export class JobManager {
 
   /** Update job state from freshly captured pane lines. */
   applyScan(job: Job, lines: string[]): Job {
-    if (job.status !== 'running') {return job;}
+    if (job.status !== "running") {
+      return job;
+    }
     const exitCode = parseSentinel(lines, job.jobId);
     if (exitCode !== null) {
       job.exitCode = exitCode;
-      job.status = exitCode === 0 ? 'done' : 'failed';
+      job.status = exitCode === 0 ? "done" : "failed";
     }
     return job;
   }

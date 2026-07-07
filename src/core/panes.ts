@@ -1,7 +1,7 @@
-import type { Config } from '../config.js';
-import type { ManagedPaneClass, PaneInfo } from '../types.js';
-import type { TmuxClient } from '../tmux/client.js';
-import { errorMessage, shellQuote } from './shared.js';
+import type { Config } from "../config.js";
+import type { ManagedPaneClass, PaneInfo } from "../types.js";
+import type { TmuxClient } from "../tmux/client.js";
+import { errorMessage, shellQuote } from "./shared.js";
 import {
   BUSY_OPTION,
   CLASS_OPTION,
@@ -18,7 +18,7 @@ import {
   SERVER_PID_OPTION,
   STATS_OPTION,
   encodeOptionValue,
-} from '../tmux/formats.js';
+} from "../tmux/formats.js";
 
 export interface AcquireOptions {
   /** Explicit pane target (%id | session:win.pane | managed-pane name). */
@@ -55,7 +55,7 @@ interface ManagedPane {
   description: string | null;
 }
 
-const DEFAULT_TAB_NAME = 'main';
+const DEFAULT_TAB_NAME = "main";
 const GC_MIN_INTERVAL_MS = 30_000;
 /** Reuse one list-panes scan for tightly clustered calls within a request. */
 const SYNC_FRESH_MS = 250;
@@ -75,22 +75,24 @@ const HEADER_FORMAT =
   ` #{${HEADER_LABEL_OPTION}} #[default],}`;
 
 /** Border chrome matching the dashboard theme: dim frames, accent on the active pane. */
-const BORDER_LINES = 'double';
-const BORDER_STYLE = 'fg=colour240';
-const ACTIVE_BORDER_STYLE = 'fg=colour45';
+const BORDER_LINES = "double";
+const BORDER_STYLE = "fg=colour240";
+const ACTIVE_BORDER_STYLE = "fg=colour45";
 
 /** Trim a command for a one-line pane header. */
 function shortCommand(command: string, max = 48): string {
-  const oneLine = command.replace(/\s+/g, ' ').trim();
+  const oneLine = command.replace(/\s+/g, " ").trim();
   return oneLine.length > max ? `${oneLine.slice(0, max - 1)}…` : oneLine;
 }
 
 function fallbackName(pane: PaneInfo): string {
-  if (pane.managedName) {return pane.managedName;}
+  if (pane.managedName) {
+    return pane.managedName;
+  }
   const stripped = pane.title.startsWith(MANAGED_TITLE_PREFIX)
     ? pane.title.slice(MANAGED_TITLE_PREFIX.length)
-    : '';
-  return stripped.split(' · ')[0] || pane.paneId.replace('%', 'p');
+    : "";
+  return stripped.split(" · ")[0] || pane.paneId.replace("%", "p");
 }
 
 function asManagedPane(pane: PaneInfo): ManagedPane {
@@ -100,7 +102,7 @@ function asManagedPane(pane: PaneInfo): ManagedPane {
     name: fallbackName(pane),
     busy: pane.busy,
     lastCommand: pane.lastCommand,
-    paneClass: pane.paneClass ?? 'oneshot',
+    paneClass: pane.paneClass ?? "oneshot",
     lastUsedAt: pane.lastUsedAt ?? 0,
     lastExitCode: pane.lastExitCode,
     agentId: pane.agentId,
@@ -110,12 +112,14 @@ function asManagedPane(pane: PaneInfo): ManagedPane {
 }
 
 function processIsAlive(pid: number | null): boolean {
-  if (pid === null || pid <= 0) {return false;}
+  if (pid === null || pid <= 0) {
+    return false;
+  }
   try {
     process.kill(pid, 0);
     return true;
   } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'EPERM';
+    return (error as NodeJS.ErrnoException).code === "EPERM";
   }
 }
 
@@ -198,7 +202,7 @@ export class PaneAllocator {
     return this.withLock(async () => {
       const entry = await this.requireManaged(paneId);
       entry.busy = busy;
-      await this.client.setPaneOption(paneId, BUSY_OPTION, busy ? '1' : '0');
+      await this.client.setPaneOption(paneId, BUSY_OPTION, busy ? "1" : "0");
     });
   }
 
@@ -244,19 +248,25 @@ export class PaneAllocator {
 
   private async removeUnlocked(paneId: string): Promise<void> {
     const cachedWindow =
-      this.managed.get(paneId)?.windowId ?? this.lastKnownWindow.get(paneId) ?? null;
+      this.managed.get(paneId)?.windowId ??
+      this.lastKnownWindow.get(paneId) ??
+      null;
     await this.syncManaged({ force: true });
     const window = this.managed.get(paneId)?.windowId ?? cachedWindow;
     this.managed.delete(paneId);
     this.lastKnownWindow.delete(paneId);
-    if (!window || !this.config.paneHeader) {return;}
-    if ([...this.managed.values()].some((entry) => entry.windowId === window)) {return;}
+    if (!window || !this.config.paneHeader) {
+      return;
+    }
+    if ([...this.managed.values()].some((entry) => entry.windowId === window)) {
+      return;
+    }
     try {
-      await this.client.unsetWindowOption(window, 'pane-border-status');
-      await this.client.unsetWindowOption(window, 'pane-border-format');
-      await this.client.unsetWindowOption(window, 'pane-border-lines');
-      await this.client.unsetWindowOption(window, 'pane-border-style');
-      await this.client.unsetWindowOption(window, 'pane-active-border-style');
+      await this.client.unsetWindowOption(window, "pane-border-status");
+      await this.client.unsetWindowOption(window, "pane-border-format");
+      await this.client.unsetWindowOption(window, "pane-border-lines");
+      await this.client.unsetWindowOption(window, "pane-border-style");
+      await this.client.unsetWindowOption(window, "pane-active-border-style");
     } catch {
       // Killing the last pane also destroys its window; no options remain to restore.
     }
@@ -270,19 +280,19 @@ export class PaneAllocator {
     if (this.selfPane && paneId === this.selfPane) {
       throw new Error(
         `refusing to write to ${paneId}: that is the agent's own pane — ` +
-          'typing into it would feed keystrokes back to the agent session',
+          "typing into it would feed keystrokes back to the agent session",
       );
     }
     if (this.config.managedOnly && !this.isManaged(paneId)) {
       throw new Error(
         `refusing to write to ${paneId}: SIDEMUX_MANAGED_ONLY=1 restricts ` +
-          'writes to panes sidemux created',
+          "writes to panes sidemux created",
       );
     }
     const entry = this.managed.get(paneId);
     if (entry && !this.isOwned(entry)) {
       throw new Error(
-        `refusing to write to ${paneId}: pane belongs to sidemux agent ${entry.agentId ?? 'unknown'}`,
+        `refusing to write to ${paneId}: pane belongs to sidemux agent ${entry.agentId ?? "unknown"}`,
       );
     }
   }
@@ -292,7 +302,9 @@ export class PaneAllocator {
     return this.withLock(() => this.acquireUnlocked(options));
   }
 
-  private async acquireUnlocked(options: AcquireOptions): Promise<AcquiredPane> {
+  private async acquireUnlocked(
+    options: AcquireOptions,
+  ): Promise<AcquiredPane> {
     const cwd = options.cwd ?? this.defaultCwd;
 
     if (options.pane) {
@@ -300,21 +312,37 @@ export class PaneAllocator {
       this.guardWrite(paneId);
       const entry = this.managed.get(paneId);
       if (entry) {
-        if (options.name !== undefined) {entry.name = options.name;}
-        if (options.command !== undefined) {entry.lastCommand = options.command;}
-        if (options.description !== undefined) {entry.description = options.description;}
+        if (options.name !== undefined) {
+          entry.name = options.name;
+        }
+        if (options.command !== undefined) {
+          entry.lastCommand = options.command;
+        }
+        if (options.description !== undefined) {
+          entry.description = options.description;
+        }
         entry.busy = true;
         await this.writeMetadata(entry);
       }
-      return { paneId, created: false, currentPath: await this.client.panePath(paneId) };
+      return {
+        paneId,
+        created: false,
+        currentPath: await this.client.panePath(paneId),
+      };
     }
 
     const reusable = await this.findReusable(options.name, options.command);
     const reused = reusable ? this.managed.get(reusable) : undefined;
     if (reusable && reused) {
-      if (options.name !== undefined) {reused.name = options.name;}
-      if (options.command !== undefined) {reused.lastCommand = options.command;}
-      if (options.description !== undefined) {reused.description = options.description;}
+      if (options.name !== undefined) {
+        reused.name = options.name;
+      }
+      if (options.command !== undefined) {
+        reused.lastCommand = options.command;
+      }
+      if (options.description !== undefined) {
+        reused.description = options.description;
+      }
       // Claim the pane immediately: a concurrent run's TTL trim between this
       // acquire and the eventual noteLaunch must see it as busy, not idle.
       reused.busy = true;
@@ -327,14 +355,17 @@ export class PaneAllocator {
     }
 
     const name = options.name ?? DEFAULT_TAB_NAME;
-    const paneId = await this.createExternalTab(cwd, this.config.paneShell ?? undefined);
+    const paneId = await this.createExternalTab(
+      cwd,
+      this.config.paneShell ?? undefined,
+    );
     const entry: ManagedPane = {
       paneId,
       windowId: await this.client.paneWindow(paneId),
       name,
       busy: true,
       lastCommand: options.command ?? null,
-      paneClass: 'oneshot',
+      paneClass: "oneshot",
       lastUsedAt: Date.now(),
       lastExitCode: null,
       agentId: this.config.agentId,
@@ -361,7 +392,11 @@ export class PaneAllocator {
       return;
     }
     try {
-      await this.client.setWindowOption(entry.windowId, STATS_OPTION, encodeOptionValue(encoded));
+      await this.client.setWindowOption(
+        entry.windowId,
+        STATS_OPTION,
+        encodeOptionValue(encoded),
+      );
     } catch {
       // Stats are a display gauge — never let them fail a run/read.
     }
@@ -371,10 +406,12 @@ export class PaneAllocator {
   async release(paneId: string): Promise<void> {
     return this.withLock(async () => {
       const entry = this.managed.get(paneId);
-      if (!entry || !this.isOwned(entry)) {return;}
+      if (!entry || !this.isOwned(entry)) {
+        return;
+      }
       entry.busy = false;
       try {
-        await this.client.setPaneOption(paneId, BUSY_OPTION, '0');
+        await this.client.setPaneOption(paneId, BUSY_OPTION, "0");
       } catch {
         // The pane may already be gone; nothing to release.
       }
@@ -391,14 +428,17 @@ export class PaneAllocator {
     return this.withLock(() => this.trimIdlePanesUnlocked(ttlMs, keepPaneId));
   }
 
-  private async trimIdlePanesUnlocked(ttlMs: number, keepPaneId?: string): Promise<string[]> {
+  private async trimIdlePanesUnlocked(
+    ttlMs: number,
+    keepPaneId?: string,
+  ): Promise<string[]> {
     await this.syncManaged({ force: true });
     const cutoff = Date.now() - ttlMs;
     const doomed = [...this.managed.values()].filter(
       (entry) =>
         this.isOwned(entry) &&
         !entry.busy &&
-        entry.paneClass === 'oneshot' &&
+        entry.paneClass === "oneshot" &&
         entry.paneId !== keepPaneId &&
         entry.lastUsedAt <= cutoff,
     );
@@ -425,7 +465,9 @@ export class PaneAllocator {
     const named = [...this.managed.values()]
       .filter((entry) => entry.name === target)
       .sort((a, b) => {
-        if (a.busy !== b.busy) {return a.busy ? 1 : -1;}
+        if (a.busy !== b.busy) {
+          return a.busy ? 1 : -1;
+        }
         return b.lastUsedAt - a.lastUsedAt;
       });
     const bestNamed = named[0];
@@ -442,11 +484,20 @@ export class PaneAllocator {
    * would steal another command's pane and destroy the rerun-lands-in-the-
    * same-pane property.
    */
-  private async findReusable(name?: string, command?: string): Promise<string | null> {
-    if (!this.config.reusePanes) {return null;}
+  private async findReusable(
+    name?: string,
+    command?: string,
+  ): Promise<string | null> {
+    if (!this.config.reusePanes) {
+      return null;
+    }
     await this.syncManaged();
-    if (name !== undefined) {return this.bestIdle((entry) => entry.name === name);}
-    if (command !== undefined) {return this.bestIdle((entry) => entry.lastCommand === command);}
+    if (name !== undefined) {
+      return this.bestIdle((entry) => entry.name === name);
+    }
+    if (command !== undefined) {
+      return this.bestIdle((entry) => entry.lastCommand === command);
+    }
     return null;
   }
 
@@ -454,22 +505,48 @@ export class PaneAllocator {
   private bestIdle(match: (entry: ManagedPane) => boolean): string | null {
     let best: ManagedPane | null = null;
     for (const entry of this.managed.values()) {
-      if (!this.isOwned(entry)) {continue;}
-      if (entry.busy) {continue;}
-      if (!match(entry)) {continue;}
-      if (!best || entry.lastUsedAt > best.lastUsedAt) {best = entry;}
+      if (!this.isOwned(entry)) {
+        continue;
+      }
+      if (entry.busy) {
+        continue;
+      }
+      if (!match(entry)) {
+        continue;
+      }
+      if (!best || entry.lastUsedAt > best.lastUsedAt) {
+        best = entry;
+      }
     }
     return best?.paneId ?? null;
   }
 
   /** Turn on tmux's pane-border header + themed frames for sidemux's window. */
   private async enableHeaderBorder(window: string): Promise<void> {
-    if (!this.config.paneHeader) {return;}
-    await this.client.setWindowOption(window, 'pane-border-status', 'top');
-    await this.client.setWindowOption(window, 'pane-border-format', HEADER_FORMAT);
-    await this.client.setWindowOption(window, 'pane-border-lines', BORDER_LINES);
-    await this.client.setWindowOption(window, 'pane-border-style', BORDER_STYLE);
-    await this.client.setWindowOption(window, 'pane-active-border-style', ACTIVE_BORDER_STYLE);
+    if (!this.config.paneHeader) {
+      return;
+    }
+    await this.client.setWindowOption(window, "pane-border-status", "top");
+    await this.client.setWindowOption(
+      window,
+      "pane-border-format",
+      HEADER_FORMAT,
+    );
+    await this.client.setWindowOption(
+      window,
+      "pane-border-lines",
+      BORDER_LINES,
+    );
+    await this.client.setWindowOption(
+      window,
+      "pane-border-style",
+      BORDER_STYLE,
+    );
+    await this.client.setWindowOption(
+      window,
+      "pane-active-border-style",
+      ACTIVE_BORDER_STYLE,
+    );
   }
 
   /**
@@ -481,50 +558,72 @@ export class PaneAllocator {
     const base = entry.lastCommand
       ? `${entry.name} · ${shortCommand(entry.lastCommand)} · ${entry.paneId}`
       : entry.name;
-    const label = entry.description ? `${base} — ${shortCommand(entry.description, 40)}` : base;
-    await this.client.updatePane(entry.paneId, `${MANAGED_TITLE_PREFIX}${label}`, [
-      { name: HEADER_LABEL_OPTION, value: label },
-      { name: MANAGED_OPTION, value: '1' },
-      { name: NAME_OPTION, value: encodeOptionValue(entry.name) },
-      { name: AGENT_ID_OPTION, value: entry.agentId ?? this.config.agentId },
-      { name: SERVER_PID_OPTION, value: String(process.pid) },
-      { name: BUSY_OPTION, value: entry.busy ? '1' : '0' },
-      { name: CLASS_OPTION, value: entry.paneClass },
-      { name: LAST_USED_AT_OPTION, value: String(entry.lastUsedAt) },
-      {
-        name: LAST_COMMAND_OPTION,
-        value: entry.lastCommand === null ? null : encodeOptionValue(entry.lastCommand),
-      },
-      {
-        name: LAST_EXIT_CODE_OPTION,
-        value: entry.lastExitCode === null ? null : String(entry.lastExitCode),
-      },
-      {
-        name: DESCRIPTION_OPTION,
-        value: entry.description ? encodeOptionValue(entry.description) : null,
-      },
-    ]);
+    const label = entry.description
+      ? `${base} — ${shortCommand(entry.description, 40)}`
+      : base;
+    await this.client.updatePane(
+      entry.paneId,
+      `${MANAGED_TITLE_PREFIX}${label}`,
+      [
+        { name: HEADER_LABEL_OPTION, value: label },
+        { name: MANAGED_OPTION, value: "1" },
+        { name: NAME_OPTION, value: encodeOptionValue(entry.name) },
+        { name: AGENT_ID_OPTION, value: entry.agentId ?? this.config.agentId },
+        { name: SERVER_PID_OPTION, value: String(process.pid) },
+        { name: BUSY_OPTION, value: entry.busy ? "1" : "0" },
+        { name: CLASS_OPTION, value: entry.paneClass },
+        { name: LAST_USED_AT_OPTION, value: String(entry.lastUsedAt) },
+        {
+          name: LAST_COMMAND_OPTION,
+          value:
+            entry.lastCommand === null
+              ? null
+              : encodeOptionValue(entry.lastCommand),
+        },
+        {
+          name: LAST_EXIT_CODE_OPTION,
+          value:
+            entry.lastExitCode === null ? null : String(entry.lastExitCode),
+        },
+        {
+          name: DESCRIPTION_OPTION,
+          value: entry.description
+            ? encodeOptionValue(entry.description)
+            : null,
+        },
+      ],
+    );
   }
 
   private async syncManaged(options: { force?: boolean } = {}): Promise<void> {
     const now = Date.now();
-    if (!options.force && now - this.lastSyncAt < SYNC_FRESH_MS) {return;}
+    if (!options.force && now - this.lastSyncAt < SYNC_FRESH_MS) {
+      return;
+    }
     const panes = await this.client.listPanes();
     this.lastSyncAt = now;
     this.managed.clear();
     let sawWorkspacePane = false;
     for (const pane of panes) {
-      if (!pane.managed) {continue;}
+      if (!pane.managed) {
+        continue;
+      }
       const entry = asManagedPane(pane);
       // Stale-busy recovery: a server that crashed mid-run leaves its pane
       // marked busy forever. If the recorded server pid is dead, the run can
       // no longer finish — treat the pane as idle so it can be reused/trimmed.
-      if (entry.busy && entry.serverPid !== null && !processIsAlive(entry.serverPid)) {
+      if (
+        entry.busy &&
+        entry.serverPid !== null &&
+        !processIsAlive(entry.serverPid)
+      ) {
         entry.busy = false;
       }
       this.managed.set(entry.paneId, entry);
       this.lastKnownWindow.set(entry.paneId, entry.windowId);
-      if (pane.sessionName === this.config.sessionName) {sawWorkspacePane = true;}
+      if (pane.sessionName === this.config.sessionName) {
+        sawWorkspacePane = true;
+      }
     }
     if (sawWorkspacePane) {
       await this.ensureWorkspaceKeybinds();
@@ -532,17 +631,26 @@ export class PaneAllocator {
   }
 
   private async refreshWindowStatus(windowId: string): Promise<void> {
-    const panes = [...this.managed.values()].filter((entry) => entry.windowId === windowId);
-    if (panes.length === 0) {return;}
+    const panes = [...this.managed.values()].filter(
+      (entry) => entry.windowId === windowId,
+    );
+    if (panes.length === 0) {
+      return;
+    }
     const marker = panes.some((entry) => entry.busy)
-      ? '*'
-      : panes.some((entry) => entry.lastExitCode !== null && entry.lastExitCode !== 0)
-        ? '!'
+      ? "*"
+      : panes.some(
+            (entry) => entry.lastExitCode !== null && entry.lastExitCode !== 0,
+          )
+        ? "!"
         : panes.some((entry) => entry.lastExitCode === 0)
-          ? '+'
-          : '-';
+          ? "+"
+          : "-";
     try {
-      await this.client.renameWindow(windowId, `${marker} ${this.config.agentLabel}`);
+      await this.client.renameWindow(
+        windowId,
+        `${marker} ${this.config.agentLabel}`,
+      );
     } catch {
       // The pane/window may have disappeared between command completion and status refresh.
     }
@@ -552,25 +660,45 @@ export class PaneAllocator {
     return entry?.agentId === this.config.agentId;
   }
 
-  private async createExternalTab(cwd: string, shell: string | undefined): Promise<string> {
+  private async createExternalTab(
+    cwd: string,
+    shell: string | undefined,
+  ): Promise<string> {
     const session = this.config.sessionName;
     this.scheduleGarbageCollect();
     const windows = await this.client.listWindows(session);
-    const existing = windows.find((window) => window.agentId === this.config.agentId);
+    const existing = windows.find(
+      (window) => window.agentId === this.config.agentId,
+    );
     if (existing) {
       await this.installWorkspaceKeybinds(session);
       await this.writeOwnerWindowMetadata(existing.windowId);
-      return this.client.splitWindowInWindow(session, existing.windowIndex, cwd, shell);
+      return this.client.splitWindowInWindow(
+        session,
+        existing.windowIndex,
+        cwd,
+        shell,
+      );
     }
 
     if (await this.client.hasSession(session)) {
-      const paneId = await this.client.newWindow(session, cwd, shell, this.config.agentLabel);
+      const paneId = await this.client.newWindow(
+        session,
+        cwd,
+        shell,
+        this.config.agentLabel,
+      );
       await this.installWorkspaceKeybinds(session);
       await this.writeOwnerWindowMetadata(await this.client.paneWindow(paneId));
       return paneId;
     }
 
-    const paneId = await this.client.newSession(session, cwd, shell, this.config.agentLabel);
+    const paneId = await this.client.newSession(
+      session,
+      cwd,
+      shell,
+      this.config.agentLabel,
+    );
     await this.installWorkspaceKeybinds(session);
     await this.writeOwnerWindowMetadata(await this.client.paneWindow(paneId));
     return paneId;
@@ -586,7 +714,9 @@ export class PaneAllocator {
 
   private scheduleGarbageCollect(): void {
     const now = Date.now();
-    if (this.gcInFlight || now - this.lastGcAt < GC_MIN_INTERVAL_MS) {return;}
+    if (this.gcInFlight || now - this.lastGcAt < GC_MIN_INTERVAL_MS) {
+      return;
+    }
     this.lastGcAt = now;
     this.gcInFlight = this.withLock(() => this.garbageCollect())
       .catch((error: unknown) => {
@@ -603,7 +733,9 @@ export class PaneAllocator {
       this.client.listPanes(),
     ]);
     for (const window of windows) {
-      if (!window.agentId) {continue;}
+      if (!window.agentId) {
+        continue;
+      }
       if (window.agentId === this.config.agentId) {
         // Heartbeat: keep this window's ownership fresh so humans (and future
         // staleness checks) can tell live windows from abandoned ones.
@@ -613,10 +745,20 @@ export class PaneAllocator {
       // Pid liveness is the kill signal. Caveat: a recycled pid makes a dead
       // server look alive, which merely delays collection until the impostor
       // exits — the safe failure direction.
-      if (processIsAlive(window.serverPid)) {continue;}
-      const windowPanes = panes.filter((pane) => pane.windowId === window.windowId && pane.managed);
-      if (windowPanes.length === 0) {continue;}
-      if (windowPanes.some((pane) => pane.busy && processIsAlive(pane.serverPid))) {continue;}
+      if (processIsAlive(window.serverPid)) {
+        continue;
+      }
+      const windowPanes = panes.filter(
+        (pane) => pane.windowId === window.windowId && pane.managed,
+      );
+      if (windowPanes.length === 0) {
+        continue;
+      }
+      if (
+        windowPanes.some((pane) => pane.busy && processIsAlive(pane.serverPid))
+      ) {
+        continue;
+      }
       try {
         await this.client.killWindow(window.windowId);
       } catch {
@@ -628,29 +770,35 @@ export class PaneAllocator {
   }
 
   private async installWorkspaceKeybinds(session: string): Promise<void> {
-    if (!this.config.keybinds || this.keybindsInstalled) {return;}
+    if (!this.config.keybinds || this.keybindsInstalled) {
+      return;
+    }
     const chooserCommand = [
       `SIDEMUX_SESSION=${shellQuote(session)}`,
-      this.config.socketName ? `SIDEMUX_TMUX_SOCKET=${shellQuote(this.config.socketName)}` : '',
+      this.config.socketName
+        ? `SIDEMUX_TMUX_SOCKET=${shellQuote(this.config.socketName)}`
+        : "",
       shellQuote(process.execPath),
-      shellQuote(process.argv[1] ?? 'sidemux'),
-      'dashboard',
-    ].filter(Boolean).join(' ');
+      shellQuote(process.argv[1] ?? "sidemux"),
+      "dashboard",
+    ]
+      .filter(Boolean)
+      .join(" ");
 
     await this.client.bindKey([
-      '-T',
-      'prefix',
+      "-T",
+      "prefix",
       this.config.dashboardKey,
-      'display-popup',
-      '-E',
-      '-w',
-      '96%',
-      '-h',
-      '92%',
-      '-x',
-      'C',
-      '-y',
-      'C',
+      "display-popup",
+      "-E",
+      "-w",
+      "96%",
+      "-h",
+      "92%",
+      "-x",
+      "C",
+      "-y",
+      "C",
       chooserCommand,
     ]);
     this.keybindsInstalled = true;
@@ -658,10 +806,14 @@ export class PaneAllocator {
 
   private async requireManaged(paneId: string): Promise<ManagedPane> {
     const known = this.managed.get(paneId);
-    if (known) {return known;}
+    if (known) {
+      return known;
+    }
     await this.syncManaged({ force: true });
     const entry = this.managed.get(paneId);
-    if (!entry) {throw new Error(`pane is not managed by sidemux: ${paneId}`);}
+    if (!entry) {
+      throw new Error(`pane is not managed by sidemux: ${paneId}`);
+    }
     return entry;
   }
 }

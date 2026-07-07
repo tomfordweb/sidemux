@@ -15,10 +15,10 @@ ignored individually.
 
 There are **two files with two distinct concerns**:
 
-| File | Scope | Holds |
-|------|-------|-------|
+| File                            | Scope             | Holds                                                               |
+| ------------------------------- | ----------------- | ------------------------------------------------------------------- |
 | `~/.config/sidemux/config.toml` | Global (per user) | Personal settings — session name, dashboard key/density, TTLs, caps |
-| `./.sidemux.toml` | Per project | **Named scripts only** (a `[scripts]` table); no settings live here |
+| `./.sidemux.toml`               | Per project       | **Named scripts only** (a `[scripts]` table); no settings live here |
 
 ## Global file: `~/.config/sidemux/config.toml`
 
@@ -28,21 +28,21 @@ on a TTY) offers to scaffold this file with a fully commented template.
 
 Every key, its environment-variable equivalent, and its default:
 
-| Key | Type | Env var | Default | Meaning |
-|-----|------|---------|---------|---------|
-| `session` | string | `SIDEMUX_SESSION` | `"smux"` | Name of the tmux session hosting the sidemux workspace (one window per agent) |
-| `socket` | string | `SIDEMUX_TMUX_SOCKET` | default socket | tmux socket name, as in `tmux -L <socket>` |
-| `keybinds` | bool | `SIDEMUX_KEYBINDS` (`0` = off) | `true` | Install the `Prefix+<key>` dashboard keybind when a tmux client is attached |
-| `reuse_panes` | bool | `SIDEMUX_REUSE_PANES` (`0` = off) | `true` | Reuse the idle pane that last ran the same command (strict affinity); off = new pane per run |
-| `pane_shell` | string | `SIDEMUX_PANE_SHELL` | login shell | Shell command for panes sidemux creates (e.g. `"sh"`); empty = tmux default |
-| `pane_header` | bool | `SIDEMUX_PANE_HEADER` (`0` = off) | `true` | Show a `command · %id` header on sidemux panes (tmux pane border) |
-| `close_on_success` | bool | `SIDEMUX_CLOSE_ON_SUCCESS` (`1` = on) | `false` | Auto-close a pane after its foreground command exits `0` (failed panes stay up) |
-| `idle_pane_ttl_ms` | int ≥ 0 | `SIDEMUX_IDLE_PANE_TTL_MS` | `900000` (15 min) | How long an idle finished one-shot pane survives before garbage collection |
-| `max_output_bytes` | int > 0 | `SIDEMUX_MAX_OUTPUT_BYTES` | `8192` | Hard cap on bytes returned by a single `read` |
-| `managed_only` | bool | `SIDEMUX_MANAGED_ONLY` (`1` = on) | `false` | Restrict write operations (`run` into an existing pane, `send_keys`, `kill`) to sidemux-created panes |
-| `shell` | string | `SIDEMUX_SHELL` | auto-detect | Force the exit-sentinel dialect: `"fish"`, or any other value for POSIX |
-| `[dashboard]` `key` | string | `SIDEMUX_DASHBOARD_KEY` | `"e"` | Key after the tmux prefix that opens the workspace dashboard popup |
-| `[dashboard]` `density` | string | `SIDEMUX_DASHBOARD_DENSITY` | `"normal"` | Dashboard spacing: `compact` \| `normal` \| `spacious` |
+| Key                     | Type    | Env var                               | Default           | Meaning                                                                                               |
+| ----------------------- | ------- | ------------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------- |
+| `session`               | string  | `SIDEMUX_SESSION`                     | `"smux"`          | Name of the tmux session hosting the sidemux workspace (one window per agent)                         |
+| `socket`                | string  | `SIDEMUX_TMUX_SOCKET`                 | default socket    | tmux socket name, as in `tmux -L <socket>`                                                            |
+| `keybinds`              | bool    | `SIDEMUX_KEYBINDS` (`0` = off)        | `true`            | Install the `Prefix+<key>` dashboard keybind when a tmux client is attached                           |
+| `reuse_panes`           | bool    | `SIDEMUX_REUSE_PANES` (`0` = off)     | `true`            | Reuse the idle pane that last ran the same command (strict affinity); off = new pane per run          |
+| `pane_shell`            | string  | `SIDEMUX_PANE_SHELL`                  | login shell       | Shell command for panes sidemux creates (e.g. `"sh"`); empty = tmux default                           |
+| `pane_header`           | bool    | `SIDEMUX_PANE_HEADER` (`0` = off)     | `true`            | Show a `command · %id` header on sidemux panes (tmux pane border)                                     |
+| `close_on_success`      | bool    | `SIDEMUX_CLOSE_ON_SUCCESS` (`1` = on) | `false`           | Auto-close a pane after its foreground command exits `0` (failed panes stay up)                       |
+| `idle_pane_ttl_ms`      | int ≥ 0 | `SIDEMUX_IDLE_PANE_TTL_MS`            | `900000` (15 min) | How long an idle finished one-shot pane survives before garbage collection                            |
+| `max_output_bytes`      | int > 0 | `SIDEMUX_MAX_OUTPUT_BYTES`            | `8192`            | Hard cap on bytes returned by a single `read`                                                         |
+| `managed_only`          | bool    | `SIDEMUX_MANAGED_ONLY` (`1` = on)     | `false`           | Restrict write operations (`run` into an existing pane, `send_keys`, `kill`) to sidemux-created panes |
+| `shell`                 | string  | `SIDEMUX_SHELL`                       | auto-detect       | Force the exit-sentinel dialect: `"fish"`, or any other value for POSIX                               |
+| `[dashboard]` `key`     | string  | `SIDEMUX_DASHBOARD_KEY`               | `"e"`             | Key after the tmux prefix that opens the workspace dashboard popup                                    |
+| `[dashboard]` `density` | string  | `SIDEMUX_DASHBOARD_DENSITY`           | `"normal"`        | Dashboard spacing: `compact` \| `normal` \| `spacious`                                                |
 
 Example:
 
@@ -108,22 +108,22 @@ A missing or malformed `.sidemux.toml` simply means no scripts.
 
 The complete set, for MCP `env` blocks (highest-precedence layer):
 
-| Variable | Default | Meaning |
-|----------|---------|---------|
-| `SIDEMUX_SESSION` | `smux` | Workspace session name |
-| `SIDEMUX_AGENT_ID` | auto | Owner id for this agent session; falls back to `CODEX_THREAD_ID`, then a hash of the server cwd |
-| `SIDEMUX_KEYBINDS` | on | `0` disables the dashboard keybind |
-| `SIDEMUX_DASHBOARD_KEY` | `e` | Prefix key that opens the dashboard popup |
-| `SIDEMUX_DASHBOARD_DENSITY` | `normal` | `compact` \| `normal` \| `spacious` |
-| `SIDEMUX_MANAGED_ONLY` | off | `1` restricts writes to sidemux-created panes |
-| `SIDEMUX_SHELL` | auto | Force sentinel dialect (`fish` or anything POSIX) |
-| `SIDEMUX_TMUX_SOCKET` | default | tmux `-L` socket name |
-| `SIDEMUX_MAX_OUTPUT_BYTES` | `8192` | Hard cap on read sizes |
-| `SIDEMUX_REUSE_PANES` | on | `0` = new pane per run (disables strict-affinity reuse) |
-| `SIDEMUX_PANE_SHELL` | login shell | Shell command for created panes |
-| `SIDEMUX_PANE_HEADER` | on | `0` hides the per-pane header |
-| `SIDEMUX_CLOSE_ON_SUCCESS` | off | `1` auto-closes panes after exit `0` |
-| `SIDEMUX_IDLE_PANE_TTL_MS` | `900000` | Idle-pane garbage-collection TTL in ms |
+| Variable                    | Default     | Meaning                                                                                         |
+| --------------------------- | ----------- | ----------------------------------------------------------------------------------------------- |
+| `SIDEMUX_SESSION`           | `smux`      | Workspace session name                                                                          |
+| `SIDEMUX_AGENT_ID`          | auto        | Owner id for this agent session; falls back to `CODEX_THREAD_ID`, then a hash of the server cwd |
+| `SIDEMUX_KEYBINDS`          | on          | `0` disables the dashboard keybind                                                              |
+| `SIDEMUX_DASHBOARD_KEY`     | `e`         | Prefix key that opens the dashboard popup                                                       |
+| `SIDEMUX_DASHBOARD_DENSITY` | `normal`    | `compact` \| `normal` \| `spacious`                                                             |
+| `SIDEMUX_MANAGED_ONLY`      | off         | `1` restricts writes to sidemux-created panes                                                   |
+| `SIDEMUX_SHELL`             | auto        | Force sentinel dialect (`fish` or anything POSIX)                                               |
+| `SIDEMUX_TMUX_SOCKET`       | default     | tmux `-L` socket name                                                                           |
+| `SIDEMUX_MAX_OUTPUT_BYTES`  | `8192`      | Hard cap on read sizes                                                                          |
+| `SIDEMUX_REUSE_PANES`       | on          | `0` = new pane per run (disables strict-affinity reuse)                                         |
+| `SIDEMUX_PANE_SHELL`        | login shell | Shell command for created panes                                                                 |
+| `SIDEMUX_PANE_HEADER`       | on          | `0` hides the per-pane header                                                                   |
+| `SIDEMUX_CLOSE_ON_SUCCESS`  | off         | `1` auto-closes panes after exit `0`                                                            |
+| `SIDEMUX_IDLE_PANE_TTL_MS`  | `900000`    | Idle-pane garbage-collection TTL in ms                                                          |
 
 Rule of thumb: put personal, machine-wide preferences in the global file; use
 env vars only for per-project or per-client overrides.

@@ -13,7 +13,7 @@ The realistic concern is not sidemux itself but **what drives it**: a
 prompt-injected or confused agent asking to type into the wrong pane. Concrete
 examples:
 
-- typing into the pane where *the agent itself* runs, creating a feedback
+- typing into the pane where _the agent itself_ runs, creating a feedback
   loop;
 - "answering" a prompt in a pane the user was actively working in;
 - interrupting or killing something unrelated.
@@ -23,7 +23,7 @@ examples:
 1. **Self-pane refusal (always on).** Write operations (`run`, `send_keys`,
    `kill`) against the agent's own pane (`$TMUX_PANE`) are hard errors.
 2. **Strict target resolution.** tmux's `display-message` silently falls back
-   to the *active pane* for unknown targets, which means a typo'd target would
+   to the _active pane_ for unknown targets, which means a typo'd target would
    misroute keystrokes. sidemux cross-checks every target against
    `list-panes` and errors out instead.
 3. **`SIDEMUX_MANAGED_ONLY=1` (opt-in).** Restricts all write operations to

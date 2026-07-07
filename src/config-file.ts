@@ -12,12 +12,12 @@
  * Precedence: built-in defaults < global file < environment variables.
  * A malformed file warns to stderr and is ignored — never fatal.
  */
-import { readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
-import { parse as parseToml } from 'smol-toml';
-import { z } from 'zod';
-import { errorMessage } from './core/shared.js';
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { parse as parseToml } from "smol-toml";
+import { z } from "zod";
+import { errorMessage } from "./core/shared.js";
 
 /** Settings the global config file may provide (all optional). */
 export interface FileConfig {
@@ -76,40 +76,44 @@ const scriptValueSchema = z.union([
     .passthrough(),
 ]);
 
-const projectSchema = z.object({ scripts: z.record(scriptValueSchema).optional() }).passthrough();
+const projectSchema = z
+  .object({ scripts: z.record(scriptValueSchema).optional() })
+  .passthrough();
 
 const KNOWN_GLOBAL_KEYS = new Set([
-  'session',
-  'socket',
-  'keybinds',
-  'reuse_panes',
-  'pane_shell',
-  'pane_header',
-  'close_on_success',
-  'idle_pane_ttl_ms',
-  'max_output_bytes',
-  'managed_only',
-  'shell',
-  'dashboard',
+  "session",
+  "socket",
+  "keybinds",
+  "reuse_panes",
+  "pane_shell",
+  "pane_header",
+  "close_on_success",
+  "idle_pane_ttl_ms",
+  "max_output_bytes",
+  "managed_only",
+  "shell",
+  "dashboard",
 ]);
 
 /** Path of the global config file, honoring $XDG_CONFIG_HOME. */
 export function globalConfigPath(env: NodeJS.ProcessEnv = process.env): string {
-  const base = env.XDG_CONFIG_HOME?.trim() || join(homedir(), '.config');
-  return join(base, 'sidemux', 'config.toml');
+  const base = env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
+  return join(base, "sidemux", "config.toml");
 }
 
 function readTomlFile(path: string): Record<string, unknown> | null {
   let text: string;
   try {
-    text = readFileSync(path, 'utf8');
+    text = readFileSync(path, "utf8");
   } catch {
     return null; // absent file = no config; never an error
   }
   try {
     return parseToml(text);
   } catch (error) {
-    console.error(`sidemux: ignoring malformed ${path}: ${errorMessage(error)}`);
+    console.error(
+      `sidemux: ignoring malformed ${path}: ${errorMessage(error)}`,
+    );
     return null;
   }
 }
@@ -118,13 +122,19 @@ function readTomlFile(path: string): Record<string, unknown> | null {
  * Load `~/.config/sidemux/config.toml`. Unknown keys warn and are ignored;
  * a type-invalid file warns and is ignored entirely (env/defaults still apply).
  */
-export function loadGlobalFileConfig(env: NodeJS.ProcessEnv = process.env): FileConfig {
+export function loadGlobalFileConfig(
+  env: NodeJS.ProcessEnv = process.env,
+): FileConfig {
   const path = globalConfigPath(env);
   const raw = readTomlFile(path);
-  if (!raw) {return {};}
+  if (!raw) {
+    return {};
+  }
   const parsed = globalSchema.safeParse(raw);
   if (!parsed.success) {
-    console.error(`sidemux: ignoring invalid ${path}: ${parsed.error.issues[0]?.message ?? 'invalid'}`);
+    console.error(
+      `sidemux: ignoring invalid ${path}: ${parsed.error.issues[0]?.message ?? "invalid"}`,
+    );
     return {};
   }
   for (const key of Object.keys(raw)) {
@@ -156,29 +166,39 @@ export function loadGlobalFileConfig(env: NodeJS.ProcessEnv = process.env): File
  * empty map. Script values are either a plain command string or
  * `{ command, background }` for long-running jobs.
  */
-export function loadProjectScripts(startDir: string): Map<string, ProjectScript> {
+export function loadProjectScripts(
+  startDir: string,
+): Map<string, ProjectScript> {
   const scripts = new Map<string, ProjectScript>();
   let dir = resolve(startDir);
   for (;;) {
-    const path = join(dir, '.sidemux.toml');
+    const path = join(dir, ".sidemux.toml");
     const raw = readTomlFile(path);
     if (raw) {
       const parsed = projectSchema.safeParse(raw);
       if (!parsed.success) {
-        console.error(`sidemux: ignoring invalid ${path}: ${parsed.error.issues[0]?.message ?? 'invalid'}`);
+        console.error(
+          `sidemux: ignoring invalid ${path}: ${parsed.error.issues[0]?.message ?? "invalid"}`,
+        );
         return scripts;
       }
       for (const [name, value] of Object.entries(parsed.data.scripts ?? {})) {
-        if (typeof value === 'string') {
+        if (typeof value === "string") {
           scripts.set(name, { name, command: value, background: false });
         } else {
-          scripts.set(name, { name, command: value.command, background: value.background ?? false });
+          scripts.set(name, {
+            name,
+            command: value.command,
+            background: value.background ?? false,
+          });
         }
       }
       return scripts;
     }
     const parent = dirname(dir);
-    if (parent === dir) {return scripts;}
+    if (parent === dir) {
+      return scripts;
+    }
     dir = parent;
   }
 }
