@@ -28,7 +28,7 @@ describe("loadConfig", () => {
       closeOnSuccess: false,
       idlePaneTtlMs: DEFAULT_IDLE_PANE_TTL_MS,
       agentId: expect.stringMatching(/^cwd-[0-9a-f]{8}$/),
-      agentLabel: expect.stringMatching(/^cwd-[0-9a-f]{8}$/),
+      agentLabel: "proj",
     });
   });
 
@@ -81,6 +81,15 @@ describe("loadConfig", () => {
 
   test("explicit agent ids beat the cwd-derived default", () => {
     expect(loadConfig({ SIDEMUX_AGENT_ID: "me" }, "/proj").agentId).toBe("me");
+  });
+
+  test("cwd-derived agents are labeled by the project directory name", () => {
+    expect(loadConfig({}, "/home/x/andromeda").agentLabel).toBe("andromeda");
+    expect(loadConfig({}, "/home/x/a-very-long-project-name").agentLabel).toBe(
+      "a-very-long-",
+    );
+    // Unusable basename falls back to the hash label.
+    expect(loadConfig({}, "/").agentLabel).toMatch(/^cwd-[0-9a-f]{8}$/);
   });
 
   test("uses CODEX_THREAD_ID when SIDEMUX_AGENT_ID is absent", () => {

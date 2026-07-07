@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { basename } from "node:path";
 import type { FileConfig } from "./config-file.js";
 
 export type ShellDialect = "posix" | "fish";
@@ -84,6 +85,24 @@ function shortAgentLabel(agentId: string): string {
     .replace(/^-+|-+$/g, "");
   const uuidPrefix = /^[0-9a-fA-F]{8}(?=-)/.exec(clean)?.[0];
   return (uuidPrefix ?? clean).slice(0, 12) || `pid-${String(process.pid)}`;
+}
+
+/**
+ * Human label for the workspace window. A cwd-derived agent id is an opaque
+ * hash, so label those by the project directory's name instead; explicit ids
+ * (SIDEMUX_AGENT_ID et al.) keep the id-based short label.
+ */
+function agentLabelFor(agentId: string, cwd: string): string {
+  if (/^cwd-[0-9a-f]{8}$/.test(agentId)) {
+    const dir = basename(cwd)
+      .replace(/[^A-Za-z0-9_.-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 12);
+    if (dir) {
+      return dir;
+    }
+  }
+  return shortAgentLabel(agentId);
 }
 
 /**
@@ -206,6 +225,6 @@ export function loadConfig(
           ? fileTtl
           : DEFAULT_IDLE_PANE_TTL_MS,
     agentId,
-    agentLabel: shortAgentLabel(agentId),
+    agentLabel: agentLabelFor(agentId, defaultCwd),
   };
 }
