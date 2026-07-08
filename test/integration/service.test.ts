@@ -483,6 +483,33 @@ describe.skipIf(!tmuxAvailable())(
       expect(managedAfter.length).toBe(0);
     });
 
+    test("close_owned skips running panes by default and force closes them", async () => {
+      const finished = await service.run({
+        command: "echo close-owned-done",
+        name: "co-done",
+        timeout_ms: 10_000,
+        background: false,
+      });
+      const running = await service.run({
+        command: "sleep 30",
+        name: "co-running",
+        timeout_ms: 10_000,
+        background: true,
+      });
+
+      const safe = await service.closeOwned();
+      expect(safe.closed).toContain(finished.pane);
+      expect(safe.skipped).toContainEqual({
+        pane: running.pane,
+        reason: "running",
+      });
+      expect((await service.listPanes(true)).find((p) => p.pane === running.pane)).toBeDefined();
+
+      const forced = await service.closeOwned({ force: true });
+      expect(forced.closed).toContain(running.pane);
+      expect((await service.listPanes(true)).find((p) => p.pane === running.pane)).toBeUndefined();
+    });
+
     test("run {project} resolves cwd to the package dir and names the pane", async () => {
       const root = await mkdtemp(join(tmpdir(), "smux-mono-"));
       await writeFile(

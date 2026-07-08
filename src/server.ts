@@ -392,15 +392,52 @@ export function buildServer(service: SidemuxService): McpServer {
   );
 
   server.registerTool(
+    "close_owned",
+    {
+      title: "Close this agent's sidemux panes",
+      description:
+        "Close panes owned by this sidemux agent/cwd id. By default skips running " +
+        "or pending panes so cleanup hooks do not kill dev servers or gates. Pass " +
+        "force=true to close running panes too.",
+      inputSchema: {
+        force: z
+          .boolean()
+          .default(false)
+          .describe("When true, close running/pending owned panes too"),
+      },
+      outputSchema: {
+        closed: z.array(z.string()),
+        skipped: z.array(z.object({ pane: z.string(), reason: z.string() })),
+        count: z.number(),
+        skipped_count: z.number(),
+      },
+    },
+    async (args) => {
+      const result = await service.closeOwned(args);
+      return toResult(
+        { ...result },
+        result.count === 0 && result.skipped_count === 0
+          ? "no owned sidemux panes to close"
+          : `closed ${result.count} owned pane(s), skipped ${result.skipped_count}`,
+      );
+    },
+  );
+
+  server.registerTool(
     "close_all",
     {
       title: "Close all sidemux panes",
       description:
-        "Destroy every live pane marked as sidemux-managed (kill-pane on each), including " +
-        "ones with a command still running. Leaves your own editor/shell panes untouched. " +
-        "Use to tidy up sidecar panes in one call when you are done.",
+        "Compatibility alias for force-closing every pane owned by this sidemux " +
+        "agent/cwd id, including panes with a command still running. Prefer " +
+        "close_owned for session-close hooks because it skips running panes by default.",
       inputSchema: {},
-      outputSchema: { closed: z.array(z.string()), count: z.number() },
+      outputSchema: {
+        closed: z.array(z.string()),
+        skipped: z.array(z.object({ pane: z.string(), reason: z.string() })),
+        count: z.number(),
+        skipped_count: z.number(),
+      },
     },
     async () => {
       const result = await service.closeAll();

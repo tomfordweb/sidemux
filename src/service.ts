@@ -122,6 +122,17 @@ export interface KillArgs {
   mode: "interrupt" | "kill-pane";
 }
 
+export interface CloseOwnedArgs {
+  force?: boolean | undefined;
+}
+
+export interface CloseOwnedResult {
+  closed: string[];
+  skipped: { pane: string; reason: string }[];
+  count: number;
+  skipped_count: number;
+}
+
 /**
  * Orchestrates the tmux client, job manager, pane allocator, and cursor
  * tracker behind the MCP tools. One instance per server process (stdio
@@ -641,15 +652,21 @@ export class SidemuxService {
   }
 
   /**
-   * Destroy every pane sidemux created this session — including ones with a
-   * command still running (kill-pane takes the process with it). Panes sidemux
-   * did not create (the agent's own pane, the human's shells) are never in the
-   * registry, so they are untouched. Mirrors the single-pane kill-pane teardown.
+   * Destroy panes owned by this agent/cwd id. Safe by default: running/busy
+   * panes are skipped so session-close hooks don't kill long-running servers or
+   * gates. force=true preserves the historical close_all behavior and kills all
+   * owned panes, marking running jobs interrupted first.
    */
-  async closeAll(): Promise<{ closed: string[]; count: number }> {
+  async closeOwned(args: CloseOwnedArgs = {}): Promise<CloseOwnedResult> {
     const closed: string[] = [];
-    for (const paneId of await this.allocator.managedPaneIds()) {
+    const skipped: { pane: string; reason: string }[] = [];
+    for (const pane of await this.allocator.ownedManagedPanes()) {
+      const paneId = pane.paneId;
       const job = this.jobs.findByPane(paneId);
+      if (!args.force && (pane.busy || job?.status === "running")) {
+        skipped.push({ pane: paneId, reason: "running" });
+        continue;
+      }
       if (job?.status === "running") {
         this.jobs.markInterrupted(job);
       }
@@ -663,7 +680,12 @@ export class SidemuxService {
       this.cursor.forget(paneId);
       closed.push(paneId);
     }
-    return { closed, count: closed.length };
+    return { closed, skipped, count: closed.length, skipped_count: skipped.length };
+  }
+
+  /** Historical force-close API, retained for existing clients. */
+  async closeAll(): Promise<CloseOwnedResult> {
+    return this.closeOwned({ force: true });
   }
 
   /**

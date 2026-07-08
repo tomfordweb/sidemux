@@ -1,6 +1,8 @@
 ---
-description: Close all sidemux-created tmux panes
+description: Close this cwd/agent's completed sidemux panes
 ---
 
-Close every tmux pane sidemux created in this session by calling the sidemux
-`close_all` MCP tool. Then report, in one line, how many panes were closed.
+Close completed tmux panes owned by this cwd/agent by calling the sidemux
+`close_owned` MCP tool. Do not force-close running panes unless the user
+explicitly asks for force cleanup. Then report, in one line, how many panes were
+closed and how many were skipped.

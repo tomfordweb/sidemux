@@ -18,6 +18,31 @@ async function serve(): Promise<void> {
   await server.connect(new StdioServerTransport());
 }
 
+async function runCloseOwned(argv: string[]): Promise<number> {
+  const force = argv.includes("--force");
+  const cwdIdIndex = argv.indexOf("--cwd-id");
+  const cwdId = cwdIdIndex >= 0 ? argv[cwdIdIndex + 1] : undefined;
+  if (cwdIdIndex >= 0 && !cwdId) {
+    console.error("sidemux close-owned: --cwd-id requires a value");
+    return 2;
+  }
+
+  const env = cwdId ? { ...process.env, SIDEMUX_AGENT_ID: cwdId } : process.env;
+  const config = loadConfig(env, process.cwd(), loadGlobalFileConfig());
+  const runner = createTmuxRunner({ socketName: config.socketName });
+  const service = new SidemuxService(new TmuxClient(runner), config, env);
+  const result = await service.closeOwned({ force });
+  console.log(
+    `closed ${result.count} owned pane(s), skipped ${result.skipped_count}`,
+  );
+  if (result.skipped.length > 0) {
+    console.log(
+      `skipped running pane(s): ${result.skipped.map((entry) => entry.pane).join(", ")}`,
+    );
+  }
+  return 0;
+}
+
 async function main(): Promise<void> {
   // `sidemux init [...]` runs the project installer, `sidemux uninstall`
   // reverts it, and `sidemux benchmark` measures token savings; anything else
@@ -53,6 +78,9 @@ async function main(): Promise<void> {
     const runner = createTmuxRunner({ socketName: config.socketName });
     await runDashboard(new TmuxClient(runner), config);
     return;
+  }
+  if (process.argv[2] === "close-owned" || process.argv[2] === "close") {
+    process.exit(await runCloseOwned(process.argv.slice(3)));
   }
   await serve();
 }

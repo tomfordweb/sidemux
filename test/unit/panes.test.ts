@@ -1058,6 +1058,29 @@ describe("PaneAllocator", () => {
       expect(await secondAgent.managedPaneIds()).toEqual([own.paneId]);
       expect(await secondAgent.hasManagedPane(foreign.paneId)).toBe(false);
     });
+
+    test("owned pane inventory includes busy state for this agent only", async () => {
+      const client = stubClient();
+      const firstAgent = new PaneAllocator(
+        client,
+        loadConfig({ SIDEMUX_AGENT_ID: "agent-1" }),
+        {},
+        "/proj",
+      );
+      const secondAgent = new PaneAllocator(
+        client,
+        loadConfig({ SIDEMUX_AGENT_ID: "agent-2" }),
+        {},
+        "/proj",
+      );
+
+      await firstAgent.acquire({ name: "foreign" });
+      const own = await secondAgent.acquire({ name: "own" });
+
+      expect(await secondAgent.ownedManagedPanes()).toEqual([
+        expect.objectContaining({ paneId: own.paneId, busy: true, name: "own" }),
+      ]);
+    });
   });
 
   describe("resolve", () => {

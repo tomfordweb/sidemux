@@ -55,6 +55,14 @@ interface ManagedPane {
   description: string | null;
 }
 
+export interface OwnedManagedPane {
+  paneId: string;
+  busy: boolean;
+  paneClass: ManagedPaneClass;
+  lastExitCode: number | null;
+  name: string;
+}
+
 const DEFAULT_TAB_NAME = "main";
 const GC_MIN_INTERVAL_MS = 30_000;
 /** Reuse one list-panes scan for tightly clustered calls within a request. */
@@ -185,11 +193,22 @@ export class PaneAllocator {
 
   /** Every pane id sidemux currently tracks (for bulk teardown). */
   async managedPaneIds(): Promise<string[]> {
+    return (await this.ownedManagedPanes()).map((entry) => entry.paneId);
+  }
+
+  /** Every sidemux-managed pane owned by this agent/cwd id. */
+  async ownedManagedPanes(): Promise<OwnedManagedPane[]> {
     return this.withLock(async () => {
       await this.syncManaged({ force: true });
       return [...this.managed.values()]
         .filter((entry) => this.isOwned(entry))
-        .map((entry) => entry.paneId);
+        .map((entry) => ({
+          paneId: entry.paneId,
+          busy: entry.busy,
+          paneClass: entry.paneClass,
+          lastExitCode: entry.lastExitCode,
+          name: entry.name,
+        }));
     });
   }
 

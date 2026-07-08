@@ -63,7 +63,18 @@ function stubService(): SidemuxService {
       pane: "%7",
       mode: "interrupt",
     })),
-    closeAll: vi.fn(async () => ({ closed: ["%7", "%8"], count: 2 })),
+    closeOwned: vi.fn(async () => ({
+      closed: ["%7"],
+      skipped: [{ pane: "%8", reason: "running" }],
+      count: 1,
+      skipped_count: 1,
+    })),
+    closeAll: vi.fn(async () => ({
+      closed: ["%7", "%8"],
+      skipped: [],
+      count: 2,
+      skipped_count: 0,
+    })),
   } as unknown as SidemuxService;
 }
 
@@ -92,6 +103,7 @@ describe("buildServer", () => {
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
       "close_all",
+      "close_owned",
       "kill",
       "list_panes",
       "read",
@@ -264,6 +276,22 @@ describe("buildServer", () => {
     expect((result.content as { text: string }[])[0]!.text).toContain(
       "closed 2 pane(s)",
     );
+  });
+
+  test("close_owned skips running panes by default", async () => {
+    const result = await client.callTool({
+      name: "close_owned",
+      arguments: {},
+    });
+    expect(service.closeOwned).toHaveBeenCalledWith(
+      expect.objectContaining({ force: false }),
+    );
+    expect(result.structuredContent).toMatchObject({
+      closed: ["%7"],
+      skipped: [{ pane: "%8", reason: "running" }],
+      count: 1,
+      skipped_count: 1,
+    });
   });
 
   test("run forwards project to the service", async () => {

@@ -121,7 +121,7 @@ server.
 
 ## Tools
 
-Eight tools cover the lifecycle and status of delegated commands:
+Nine tools cover the lifecycle and status of delegated commands:
 
 | Tool         | What it does                                                                                                                                                                                                                |
 | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -132,7 +132,8 @@ Eight tools cover the lifecycle and status of delegated commands:
 | `list_panes` | Lists panes together with their sidemux job status.                                                                                                                                                                         |
 | `status`     | Summarizes the sidemux workspace grouped by tmux window/tab.                                                                                                                                                                |
 | `kill`       | `interrupt` (Ctrl-C) or `kill-pane` (managed panes only).                                                                                                                                                                   |
-| `close_all`  | Destroys every live sidemux-managed pane in one call — tidy up the workspace when you're done. Leaves your own editor/shell panes untouched.                                                                                |
+| `close_owned` | Closes completed panes owned by this agent/cwd id; skips running panes by default. Use `force: true` only when you intend to terminate running jobs.                                                                        |
+| `close_all`  | Compatibility alias that force-closes panes owned by this agent/cwd id. Prefer `close_owned` for hooks.                                                                                                                     |
 
 ## Reliable completion detection
 
@@ -275,6 +276,9 @@ Every variable except `SIDEMUX_AGENT_ID` has a config-file equivalent — see
   reusable target. Concurrent jobs from the same agent split inside that owner
   window. With no attached client (headless/CI), the workspace is detached and
   can be watched with `tmux attach -t smux`.
+- **Cleanup is owned and safe by default.** `close_owned` and `sidemux close`
+  target only the current owner id (`SIDEMUX_AGENT_ID`, or the default cwd hash)
+  and skip running panes unless `force` / `--force` is set.
 - **Pane reuse is strict affinity.** A run with a `name` reuses that named
   pane; an unnamed run reuses only the idle pane that last ran the exact same
   command (most-recently-used wins). No match means a new pane — sidemux never
