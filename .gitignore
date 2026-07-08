@@ -4,3 +4,8 @@ coverage/
 *.tsbuildinfo
 .DS_Store
 .codex/config.toml
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
