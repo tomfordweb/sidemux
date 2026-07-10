@@ -56,6 +56,7 @@ describe.skipIf(!tmuxAvailable())(
       const names = tools.map((t) => t.name).sort();
       expect(names).toEqual([
         "close_all",
+        "close_owned",
         "kill",
         "list_panes",
         "read",

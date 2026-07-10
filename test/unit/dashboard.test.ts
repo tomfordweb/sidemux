@@ -6,6 +6,7 @@ import {
   buildRows,
   dashboardReducer,
   filteredRows,
+  formatRelativeTime,
   initialDashboardState,
   renderDashboard,
   renderDetailBar,
@@ -117,6 +118,8 @@ describe("dashboard state", () => {
   });
 
   test("wide table uses script, full dir, and owner metadata when there is room", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-10T12:00:00Z"));
     const output = renderDashboard(
       initialDashboardState([
         {
@@ -133,6 +136,7 @@ describe("dashboard state", () => {
           serverPid: 4242,
           busy: true,
           lastExitCode: null,
+          lastTalkAt: Date.now() - 5_000,
         },
       ]),
       "",
@@ -142,17 +146,20 @@ describe("dashboard state", () => {
     const plain = stripAnsi(output);
 
     expect(plain).toContain("SCRIPT");
+    expect(plain).toContain("TALK");
     expect(plain).toContain("STATUS");
     expect(plain).toContain("AGENT");
     expect(plain).toContain("PID");
     expect(plain).toContain("DESC");
     expect(plain).toContain("● run");
+    expect(plain).toContain("5s ago");
     expect(plain).toContain("pnpm lint");
     // Full paths land in the detail bar (home-abbreviated); the DIR column truncates.
     expect(plain).toContain("~/code/tomfordweb/andromeda");
     expect(plain).toContain("agent-abcdef");
     expect(plain).toContain("4242");
     expect(plain).toContain("@19 %19");
+    vi.useRealTimers();
   });
 
   test("small table keeps script, dir basename, and ids without full metadata columns", () => {
@@ -179,6 +186,7 @@ describe("dashboard state", () => {
     const plain = stripAnsi(output);
 
     expect(plain).toContain("SCRIPT");
+    expect(plain).toContain("TALK");
     expect(plain).toContain("S");
     expect(plain).toContain("·");
     expect(plain).toContain("pnpm lint");
@@ -222,6 +230,18 @@ describe("dashboard state", () => {
 
     expect(plain).toContain("✓ ok");
     expect(plain).toContain("✕ fail");
+  });
+
+  test("relative talk times are human readable", () => {
+    const now = new Date("2026-07-10T12:00:00Z").getTime();
+
+    expect(formatRelativeTime(null, now)).toBe("-");
+    expect(formatRelativeTime(now - 2_000, now)).toBe("just now");
+    expect(formatRelativeTime(now - 5_000, now)).toBe("5s ago");
+    expect(formatRelativeTime(now - 5 * 60_000, now)).toBe("5m ago");
+    expect(formatRelativeTime(now - 5 * 3_600_000, now)).toBe("5h ago");
+    expect(formatRelativeTime(now - 3 * 86_400_000, now)).toBe("3d ago");
+    expect(formatRelativeTime(now - 45 * 86_400_000, now)).toBe("2026-05-26");
   });
 
   test("narrow rendering stacks windows above preview", () => {
@@ -635,9 +655,13 @@ describe("buildRows", () => {
       managedPane("%20", win.windowId, "pnpm lint", {
         busy: true,
         lastExitCode: null,
+        lastUsedAt: 200,
       }),
-      managedPane("%21", win.windowId, "pnpm test", { lastExitCode: 1 }),
-      managedPane("%22", win.windowId, "pnpm build"),
+      managedPane("%21", win.windowId, "pnpm test", {
+        lastExitCode: 1,
+        lastUsedAt: 300,
+      }),
+      managedPane("%22", win.windowId, "pnpm build", { lastUsedAt: 100 }),
     ];
     const built = buildRows([win], panes);
 
@@ -654,6 +678,7 @@ describe("buildRows", () => {
       script: "* main · 3 panes",
       busy: true,
       lastExitCode: 1,
+      lastTalkAt: 300,
     });
     expect(lint).toMatchObject({
       activePaneId: "%20",
@@ -661,18 +686,21 @@ describe("buildRows", () => {
       busy: true,
       lastExitCode: null,
       dir: "/home/tomford/code/tomfordweb/andromeda",
+      lastTalkAt: 200,
     });
     expect(testRow).toMatchObject({ activePaneId: "%21", lastExitCode: 1 });
     expect(build).toMatchObject({ activePaneId: "%22", lastExitCode: 0 });
   });
 
   test("window without managed panes stays a single agent row", () => {
-    const built = buildRows([window(0, "shell")], []);
+    const win = { ...window(0, "shell"), lastSeenAt: 456 };
+    const built = buildRows([win], []);
     expect(built).toHaveLength(1);
     expect(built[0]).toMatchObject({
       kind: "agent",
       windowName: "shell",
       paneIds: [],
+      lastTalkAt: 456,
     });
   });
 
@@ -943,6 +971,33 @@ describe("runDashboard auto-refresh", () => {
     expect(client.listWindows).toHaveBeenCalledTimes(2);
     await advance(1500);
     expect(client.listWindows).toHaveBeenCalledTimes(3);
+  });
+
+  test("SIGWINCH redraws after debounce and refreshes preview once", async () => {
+    vi.useFakeTimers({
+      toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout"],
+    });
+    const { stdin } = installFakeTty();
+    const capturePane = vi.fn(async () => ["pane preview line"]);
+    const client = stubDashboardClient({ capturePane });
+    await runDashboard(client, loadConfig({}), {
+      ...fakeWatcher().deps,
+      resizeDebounceMs: 100,
+    });
+    expect(capturePane).toHaveBeenCalledTimes(1);
+
+    process.emit("SIGWINCH", "SIGWINCH");
+    process.emit("SIGWINCH", "SIGWINCH");
+    vi.advanceTimersByTime(99);
+    await Promise.resolve();
+    expect(capturePane).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(1);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(capturePane).toHaveBeenCalledTimes(2);
+    stdin.emit("data", Buffer.from("q"));
+    await Promise.resolve();
   });
 
   test("closing the dashboard kills the watcher and stops refreshing", async () => {

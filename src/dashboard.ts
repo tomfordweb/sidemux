@@ -39,6 +39,8 @@ export interface DashboardRow {
   serverPid?: number | null;
   busy?: boolean;
   lastExitCode?: number | null;
+  /** Last command activity timestamp for stale-thread detection. */
+  lastTalkAt?: number | null;
 }
 
 export interface DashboardState {
@@ -127,6 +129,7 @@ export function filteredRows(state: DashboardState): DashboardRow[] {
       row.agentId,
       row.serverPid?.toString(),
       row.lastExitCode?.toString(),
+      row.lastTalkAt?.toString(),
     ]
       .join(" ")
       .toLowerCase()
@@ -219,6 +222,8 @@ export interface DashboardDeps {
   ) => ControlWatcher;
   /** Auto-refresh coalescing interval in ms. */
   tickMs?: number;
+  /** Terminal resize redraw debounce interval in ms. */
+  resizeDebounceMs?: number;
   /**
    * Runs focus commands (switch-client/select-pane/zoom) after the dashboard
    * exits. tmux ignores `switch-client` for the client that owns an open
@@ -255,11 +260,30 @@ export async function runDashboard(
   let reloading = false;
   let watcherAlive = true;
   let fallbackTicks = 0;
+  let resizeTimer: NodeJS.Timeout | null = null;
 
   const redraw = (): void => {
     if (!closed) {
       render(output, state, preview, config, stats);
     }
+  };
+
+  const scheduleResizeRedraw = (): void => {
+    if (closed) {
+      return;
+    }
+    if (resizeTimer) {
+      clearTimeout(resizeTimer);
+    }
+    resizeTimer = setTimeout(() => {
+      resizeTimer = null;
+      refreshPreview()
+        .catch((error: unknown) => {
+          preview = errorMessage(error);
+        })
+        .finally(redraw);
+    }, deps.resizeDebounceMs ?? 100);
+    resizeTimer.unref();
   };
 
   const reload = async (): Promise<void> => {
@@ -332,10 +356,14 @@ export async function runDashboard(
     }
     closed = true;
     clearInterval(tick);
+    if (resizeTimer) {
+      clearTimeout(resizeTimer);
+      resizeTimer = null;
+    }
     watcher.kill();
     input.setRawMode(false);
     input.pause();
-    process.off("SIGWINCH", redraw);
+    process.off("SIGWINCH", scheduleResizeRedraw);
     output.write(`${ANSI.showCursor}${ANSI.reset}`);
   };
 
@@ -459,7 +487,7 @@ export async function runDashboard(
         render(output, state, preview, config, stats);
       }),
   );
-  process.on("SIGWINCH", redraw);
+  process.on("SIGWINCH", scheduleResizeRedraw);
   process.once("exit", close);
   process.once("SIGINT", () => {
     close();
@@ -491,7 +519,7 @@ export function renderDashboard(
     height - 3 - density.outerBlankLines - statsLines.length,
   );
   const wide = width >= 100;
-  const listWidth = wide ? Math.max(38, Math.floor(width * 0.38)) : width;
+  const listWidth = wide ? Math.max(50, Math.floor(width * 0.5)) : width;
   const gapWidth = wide ? density.horizontalGap.length : 0;
   const previewWidth = wide ? Math.max(1, width - listWidth - gapWidth) : width;
   const listHeight = wide
@@ -698,6 +726,10 @@ export function renderDetailBar(
             bg: THEME.selected,
           },
           { text: truncatePlain(row.description ?? "—", 48), bg: THEME.panel },
+          {
+            text: `talk ${formatRelativeTime(row.lastTalkAt)}`,
+            bg: THEME.selected,
+          },
           { text: truncatePlain(row.script ?? "-", 36), bg: THEME.selected },
           {
             text: truncatePlain(abbreviateHome(row.dir ?? "-"), 32),
@@ -714,8 +746,12 @@ export function renderDetailBar(
           { text: `${row.windowName} ${row.windowId}`, bg: THEME.selected },
           { text: truncatePlain(row.description ?? "—", 32), bg: THEME.panel },
           {
-            text: `${row.agentId ?? "-"} · pid ${row.serverPid ?? "-"}`,
+            text: `talk ${formatRelativeTime(row.lastTalkAt)}`,
             bg: THEME.selected,
+          },
+          {
+            text: `${row.agentId ?? "-"} · pid ${row.serverPid ?? "-"}`,
+            bg: THEME.panel,
           },
           {
             text: truncatePlain(abbreviateHome(row.dir ?? "-"), 32),
@@ -964,6 +1000,7 @@ interface TableSpec {
   header: string;
   full: boolean;
   statusWidth: number;
+  talkWidth: number;
   scriptWidth: number;
   descWidth: number;
   dirWidth: number;
@@ -972,19 +1009,28 @@ interface TableSpec {
 }
 
 function tableSpec(width: number): TableSpec {
-  const full = width >= 88;
+  const full = width >= 92;
   if (full) {
-    const statusWidth = 8;
-    const nameWidth = 12;
-    const agentWidth = width >= 112 ? 18 : 12;
-    const fixed = 3 + statusWidth + nameWidth + agentWidth + 5 + 4 + 9 + 9;
-    const flexible = Math.max(48, width - fixed);
-    const scriptWidth = Math.min(28, Math.max(16, Math.floor(flexible * 0.32)));
-    const descWidth = Math.max(14, Math.floor((flexible - scriptWidth) * 0.55));
-    const dirWidth = Math.max(14, flexible - scriptWidth - descWidth);
+    const statusWidth = width >= 100 ? 8 : 6;
+    const talkWidth = width >= 100 ? 10 : 8;
+    const nameWidth = width >= 100 ? 12 : 10;
+    const agentWidth = width >= 112 ? 14 : 10;
+    const spaces = 10;
+    const idsReserve = 8;
+    const fixed =
+      3 + statusWidth + talkWidth + nameWidth + agentWidth + 5 + 4 + idsReserve;
+    const flexible = Math.max(30, width - spaces - fixed);
+    const scriptWidth = Math.min(
+      width >= 100 ? 22 : 14,
+      Math.max(10, Math.floor(flexible * 0.32)),
+    );
+    const remaining = Math.max(20, flexible - scriptWidth);
+    const descWidth = Math.max(10, Math.floor(remaining * 0.45));
+    const dirWidth = Math.max(10, remaining - descWidth);
     return {
       full,
       statusWidth,
+      talkWidth,
       scriptWidth,
       descWidth,
       dirWidth,
@@ -993,6 +1039,7 @@ function tableSpec(width: number): TableSpec {
       header: [
         pad("#", 3),
         pad("STATUS", statusWidth),
+        pad("TALK", talkWidth),
         pad("SCRIPT", scriptWidth),
         pad("DESC", descWidth),
         pad("DIR", dirWidth),
@@ -1005,13 +1052,20 @@ function tableSpec(width: number): TableSpec {
     };
   }
   const statusWidth = 1;
-  const fixed = 3 + statusWidth + 9 + 4;
-  const flexible = Math.max(16, width - fixed);
-  const scriptWidth = Math.max(10, Math.floor(flexible * 0.62));
-  const dirWidth = Math.max(8, flexible - scriptWidth);
+  const talkWidth = 8;
+  const spaces = 5;
+  const idsReserve = 7;
+  const fixed = 3 + statusWidth + talkWidth + idsReserve;
+  const flexible = Math.max(16, width - spaces - fixed);
+  const scriptWidth = Math.min(
+    18,
+    Math.max(flexible >= 19 ? 11 : 8, Math.floor(flexible * 0.5)),
+  );
+  const dirWidth = Math.max(6, flexible - scriptWidth);
   return {
     full,
     statusWidth,
+    talkWidth,
     scriptWidth,
     descWidth: 0,
     dirWidth,
@@ -1020,6 +1074,7 @@ function tableSpec(width: number): TableSpec {
     header: [
       pad("#", 3),
       "S",
+      pad("TALK", talkWidth),
       pad("SCRIPT", scriptWidth),
       pad("DIR", dirWidth),
       "IDS",
@@ -1052,12 +1107,19 @@ function formatTableRow(
     dim,
   );
   const ids = color(`${row.windowId} ${row.activePaneId}`, THEME.dim);
+  const talk = color(
+    pad(
+      truncatePlain(formatRelativeTime(row.lastTalkAt), table.talkWidth),
+      table.talkWidth,
+    ),
+    THEME.dim,
+  );
   const index = color(
     pad(row.kind === "pane" ? "" : row.windowIndex, 3),
     selected ? THEME.accent2 : THEME.dim,
   );
   if (!table.full) {
-    return `${index} ${status} ${script} ${dir} ${ids}`;
+    return `${index} ${status} ${talk} ${script} ${dir} ${ids}`;
   }
 
   const desc = color(
@@ -1083,7 +1145,33 @@ function formatTableRow(
     pad(row.lastExitCode?.toString() ?? "-", 4),
     statusColor(row),
   );
-  return `${index} ${status} ${script} ${desc} ${dir} ${name} ${agent} ${pid} ${exit} ${ids}`;
+  return `${index} ${status} ${talk} ${script} ${desc} ${dir} ${name} ${agent} ${pid} ${exit} ${ids}`;
+}
+
+export function formatRelativeTime(
+  timestamp: number | null | undefined,
+  now = Date.now(),
+): string {
+  if (!timestamp || timestamp <= 0) {
+    return "-";
+  }
+  const elapsed = Math.max(0, now - timestamp);
+  if (elapsed < 5_000) {
+    return "just now";
+  }
+  if (elapsed < 60_000) {
+    return `${Math.floor(elapsed / 1_000)}s ago`;
+  }
+  if (elapsed < 3_600_000) {
+    return `${Math.floor(elapsed / 60_000)}m ago`;
+  }
+  if (elapsed < 86_400_000) {
+    return `${Math.floor(elapsed / 3_600_000)}h ago`;
+  }
+  if (elapsed < 2_592_000_000) {
+    return `${Math.floor(elapsed / 86_400_000)}d ago`;
+  }
+  return new Date(timestamp).toISOString().slice(0, 10);
 }
 
 function displayScript(row: DashboardRow): string {
@@ -1165,6 +1253,9 @@ export function buildRows(
     const failed = children.find(
       (pane) => pane.lastExitCode !== null && pane.lastExitCode !== 0,
     );
+    const lastChildTalkAt = latestTimestamp(
+      children.map((pane) => pane.lastUsedAt),
+    );
     rows.push({
       kind: "agent",
       sessionName: window.sessionName,
@@ -1189,6 +1280,7 @@ export function buildRows(
       lastExitCode:
         failed?.lastExitCode ??
         (children.some((pane) => pane.lastExitCode === 0) ? 0 : null),
+      lastTalkAt: lastChildTalkAt ?? window.lastSeenAt,
     });
     for (const pane of children) {
       rows.push({
@@ -1206,10 +1298,24 @@ export function buildRows(
         serverPid: pane.serverPid ?? window.serverPid,
         busy: pane.busy,
         lastExitCode: pane.lastExitCode,
+        lastTalkAt: pane.lastUsedAt,
       });
     }
   }
   return rows;
+}
+
+function latestTimestamp(values: (number | null)[]): number | null {
+  let latest: number | null = null;
+  for (const value of values) {
+    if (value === null || value <= 0) {
+      continue;
+    }
+    if (latest === null || value > latest) {
+      latest = value;
+    }
+  }
+  return latest;
 }
 
 /**
