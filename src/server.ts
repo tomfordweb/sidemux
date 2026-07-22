@@ -132,7 +132,7 @@ export function buildServer(service: SidemuxService): McpServer {
         tail: z
           .string()
           .optional()
-          .describe("Omitted — the text content carries the tail"),
+          .describe("Last lines of the command's output"),
         closed: z.boolean(),
       },
     },
@@ -145,10 +145,11 @@ export function buildServer(service: SidemuxService): McpServer {
         result.status === "running"
           ? `[${result.job_id}] still running in ${result.pane} — call wait with this job_id`
           : `[${result.job_id}] ${result.status} (exit ${result.exit_code}) in ${result.duration_ms}ms\n${result.tail}`;
-      // The tail lives in the text summary only: duplicating it in
-      // structuredContent doubles what the client keeps in context.
-      const { tail: _tail, ...structured } = result;
-      return toResult(structured, summary);
+      // The tail must be present in structuredContent: clients that
+      // support structured output surface ONLY structuredContent to the
+      // model and drop the text block (github#3), so stripping it there
+      // hides the output entirely.
+      return toResult({ ...result }, summary);
     },
   );
 
@@ -187,7 +188,7 @@ export function buildServer(service: SidemuxService): McpServer {
         tail: z
           .string()
           .optional()
-          .describe("Omitted — the text content carries the tail"),
+          .describe("Recent pane output"),
       },
     },
     async (args, extra) => {
@@ -201,9 +202,9 @@ export function buildServer(service: SidemuxService): McpServer {
           : result.status === "exit"
             ? `exit ${result.exit_code}`
             : result.status;
-      const { tail: _tail, ...structured } = result;
+      // tail included in structuredContent — see run (github#3).
       return toResult(
-        structured,
+        { ...result },
         `${head} after ${result.elapsed_ms}ms\n${result.tail}`,
       );
     },
@@ -240,7 +241,7 @@ export function buildServer(service: SidemuxService): McpServer {
         text: z
           .string()
           .optional()
-          .describe("Omitted — the text content carries the output"),
+          .describe("The requested output lines"),
         lines_returned: z.number(),
         truncated: z.boolean(),
         cursor_reset: z.boolean(),
@@ -259,9 +260,9 @@ export function buildServer(service: SidemuxService): McpServer {
       ]
         .filter(Boolean)
         .join(", ");
-      const { text: _text, ...structured } = result;
+      // text included in structuredContent — see run (github#3).
       return toResult(
-        structured,
+        { ...result },
         `${result.lines_returned} lines${notes ? ` (${notes})` : ""}\n${result.text}`,
       );
     },
