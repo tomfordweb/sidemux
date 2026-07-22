@@ -89,8 +89,9 @@ describe.skipIf(!tmuxAvailable())(
       };
       expect(runOut.status).toBe("done");
       expect(runOut.exit_code).toBe(0);
-      // The tail lives only in the text content; structuredContent omits it.
-      expect(runOut.tail).toBeUndefined();
+      // The tail must be in structuredContent — clients that support
+      // structured output show only structuredContent to the model (github#3).
+      expect(runOut.tail).toContain("e2e-ok");
       expect((run.content as { text: string }[])[0]!.text).toContain("e2e-ok");
 
       const read = await client.callTool({
@@ -101,7 +102,7 @@ describe.skipIf(!tmuxAvailable())(
         text?: string;
         job_status: string;
       };
-      expect(readOut.text).toBeUndefined();
+      expect(readOut.text).toContain("e2e-ok");
       expect((read.content as { text: string }[])[0]!.text).toContain("e2e-ok");
       expect(readOut.job_status).toBe("done");
 

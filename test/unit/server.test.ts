@@ -132,6 +132,7 @@ describe("buildServer", () => {
       job_id: "jabc123",
       status: "done",
       closed: false,
+      tail: "ok",
     });
     const text = (result.content as { text: string }[])[0]!.text;
     expect(text).toContain("done");
