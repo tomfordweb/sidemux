@@ -139,8 +139,14 @@ Eight tools cover the lifecycle and status of delegated commands:
 When sidemux launches a command, it appends an exit-code sentinel:
 
 ```
-your-command; printf '\n<<SMUX:%s:%d>>\n' 'j4f2a1' $?
+set -o pipefail 2>/dev/null; your-command; printf '\n<<SMUX:%s:%d>>\n' 'j4f2a1' $?
 ```
+
+The `pipefail` prefix makes a failing stage anywhere in a pipeline surface as
+the job's exit code (`cmd | tee log` reports `cmd`'s failure, not tee's 0). It
+degrades gracefully: shells without the option (plain `sh`/dash) discard the
+error and keep tail-of-pipe semantics; fish has no pipefail, so the prefix is
+skipped there.
 
 The completed sentinel (`<<SMUX:j4f2a1:0>>`) carries the real exit code. The
 _echoed_ command line can never produce a false positive — it contains the

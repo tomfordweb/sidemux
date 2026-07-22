@@ -1,7 +1,16 @@
+import { spawnSync } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { JobManager } from "../../src/core/jobs.js";
 import { waitFor } from "../../src/core/waiter.js";
 import { TmuxFixture, tmuxAvailable } from "./helpers/tmux-fixture.js";
+
+function bashAvailable(): boolean {
+  try {
+    return spawnSync("bash", ["--version"], { stdio: "ignore" }).status === 0;
+  } catch {
+    return false;
+  }
+}
 
 describe.skipIf(!tmuxAvailable())("run → wait against real tmux", () => {
   const fx = new TmuxFixture();
@@ -37,6 +46,28 @@ describe.skipIf(!tmuxAvailable())("run → wait against real tmux", () => {
     expect(result.exitCode).toBe(3);
     expect(job.status).toBe("failed");
   });
+
+  test.skipIf(!bashAvailable())(
+    "piped failing command surfaces the failing stage's exit code (pipefail)",
+    async () => {
+      // pipefail needs a shell that supports it; the fixture's plain sh may
+      // be dash (which keeps tail-of-pipe status), so run this pane in bash.
+      const pane = await fx.client.splitWindow(
+        "/tmp",
+        fx.firstPane,
+        "30%",
+        "bash --norc",
+      );
+      const job = await jobs.launch(pane, 'sh -c "exit 3" | cat', null);
+      const result = await waitFor(fx.client, pane, jobs, job, {
+        until: "exit",
+        timeoutMs: 10_000,
+      });
+      expect(result.status).toBe("exit");
+      expect(result.exitCode).toBe(3);
+      expect(job.status).toBe("failed");
+    },
+  );
 
   test("long command: wait times out re-armably, second wait completes", async () => {
     const job = await jobs.launch(
