@@ -27,6 +27,7 @@ describe("loadConfig", () => {
       paneHeader: true,
       closeOnSuccess: false,
       idlePaneTtlMs: DEFAULT_IDLE_PANE_TTL_MS,
+      logDir: expect.stringMatching(/\/sidemux\/logs$/),
       agentId: expect.stringMatching(/^cwd-[0-9a-f]{8}$/),
       agentLabel: expect.stringMatching(/^cwd-[0-9a-f]{8}$/),
     });
@@ -47,6 +48,7 @@ describe("loadConfig", () => {
       SIDEMUX_PANE_HEADER: "0",
       SIDEMUX_CLOSE_ON_SUCCESS: "1",
       SIDEMUX_IDLE_PANE_TTL_MS: "60000",
+      SIDEMUX_LOG_DIR: "/var/log/sidemux",
       SIDEMUX_AGENT_ID: "agent-abcdef123456",
     });
     expect(config).toEqual({
@@ -63,9 +65,16 @@ describe("loadConfig", () => {
       paneHeader: false,
       closeOnSuccess: true,
       idlePaneTtlMs: 60_000,
+      logDir: "/var/log/sidemux",
       agentId: "agent-abcdef123456",
       agentLabel: "agent-abcdef",
     });
+  });
+
+  test("logDir honors XDG_STATE_HOME when SIDEMUX_LOG_DIR is unset", () => {
+    expect(loadConfig({ XDG_STATE_HOME: "/xdg/state" }, "/proj").logDir).toBe(
+      "/xdg/state/sidemux/logs",
+    );
   });
 
   test("default agent id is stable per working directory", () => {

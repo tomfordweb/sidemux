@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { FileConfig } from "./config-file.js";
 
 export type ShellDialect = "posix" | "fish";
@@ -45,6 +47,11 @@ export interface Config {
   closeOnSuccess: boolean;
   /** How long an idle one-shot pane survives before garbage collection. */
   idlePaneTtlMs: number;
+  /**
+   * Directory holding per-job output log files (tmux pipe-pane tees every
+   * job's full output here, immune to the pane's history-limit).
+   */
+  logDir: string;
   /** Stable owner id for this MCP server/agent session. */
   agentId: string;
   /** Short owner id used in tmux window names. */
@@ -102,6 +109,20 @@ function parseAgentId(env: NodeJS.ProcessEnv, defaultCwd: string): string {
     .digest("hex")
     .slice(0, 8);
   return `cwd-${hash}`;
+}
+
+/**
+ * Where per-job log files live. SIDEMUX_LOG_DIR wins; otherwise the XDG state
+ * dir (`~/.local/state/sidemux/logs`) — logs are runtime state, not config.
+ */
+function parseLogDir(env: NodeJS.ProcessEnv): string {
+  const explicit = env.SIDEMUX_LOG_DIR?.trim();
+  if (explicit) {
+    return explicit;
+  }
+  const stateHome =
+    env.XDG_STATE_HOME?.trim() || join(homedir(), ".local", "state");
+  return join(stateHome, "sidemux", "logs");
 }
 
 export function shellDialectFromCommand(command: string): ShellDialect | null {
@@ -205,6 +226,7 @@ export function loadConfig(
         : fileTtl !== undefined && fileTtl >= 0
           ? fileTtl
           : DEFAULT_IDLE_PANE_TTL_MS,
+    logDir: parseLogDir(env),
     agentId,
     agentLabel: shortAgentLabel(agentId),
   };

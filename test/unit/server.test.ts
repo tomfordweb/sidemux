@@ -14,6 +14,7 @@ function stubService(): SidemuxService {
       duration_ms: 42,
       tail: "ok",
       closed: false,
+      log_file: "/state/sidemux/logs/jabc123.log",
     })),
     wait: vi.fn(async () => ({
       status: "pattern",
@@ -29,6 +30,7 @@ function stubService(): SidemuxService {
       cursor_reset: false,
       job_status: "done",
       exit_code: 0,
+      log_file: "/state/sidemux/logs/jabc123.log",
     })),
     sendKeys: vi.fn(async () => ({ ok: true as const, pane: "%7" })),
     listPanes: vi.fn(async () => [
@@ -43,6 +45,7 @@ function stubService(): SidemuxService {
         description: "build gate",
         job_id: "jabc123",
         job_status: "running" as const,
+        log_file: "/state/sidemux/logs/jabc123.log",
       },
     ]),
     status: vi.fn(async () => ({
@@ -147,6 +150,7 @@ describe("buildServer", () => {
       duration_ms: 60_000,
       tail: "",
       closed: false,
+      log_file: "/state/sidemux/logs/jslow01.log",
     });
     const result = await client.callTool({
       name: "run",

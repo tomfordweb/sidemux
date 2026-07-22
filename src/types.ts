@@ -58,4 +58,10 @@ export interface Job {
   baselineLines: number;
   status: JobStatus;
   exitCode: number | null;
+  /**
+   * Absolute path of the job's full-output log file (pipe-pane tee), or null
+   * when logging could not be set up. The file survives pane history-limit
+   * truncation and pane teardown.
+   */
+  logFile: string | null;
 }

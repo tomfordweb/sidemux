@@ -1,7 +1,8 @@
 import type { Config, ShellDialect } from "./config.js";
 import { loadProjectScripts, type ProjectScript } from "./config-file.js";
 import { CursorTracker } from "./core/cursor.js";
-import { JobManager, scrubOutput } from "./core/jobs.js";
+import { JobManager, SENTINEL_MARKER, scrubOutput } from "./core/jobs.js";
+import { pruneOldLogs, readJobLog } from "./core/logs.js";
 import { shapeOutput, type ShapedOutput } from "./core/output.js";
 import { PaneAllocator } from "./core/panes.js";
 import { clampCaptureStart, shellQuote } from "./core/shared.js";
@@ -43,6 +44,8 @@ export interface RunResult {
   duration_ms: number;
   tail: string;
   closed: boolean;
+  /** Full-output log file for this job (survives pane scrollback limits). */
+  log_file: string | null;
 }
 
 export interface WaitArgs {
@@ -79,6 +82,8 @@ export interface ReadResult {
   cursor_reset: boolean;
   job_status: JobStatus | null;
   exit_code: number | null;
+  /** Full-output log file for the job being read, when one exists. */
+  log_file: string | null;
 }
 
 export interface SendKeysArgs {
@@ -104,6 +109,7 @@ export interface ListedPane {
   description: string | null;
   job_id: string | null;
   job_status: JobStatus | null;
+  log_file: string | null;
 }
 
 export interface StatusTab {
@@ -140,12 +146,14 @@ export class SidemuxService {
     env: NodeJS.ProcessEnv = process.env,
     defaultCwd: string = process.cwd(),
   ) {
-    this.jobs = new JobManager(client);
+    this.jobs = new JobManager(client, config.logDir);
     this.allocator = new PaneAllocator(client, config, env, defaultCwd);
     this.cursor = new CursorTracker();
     this.selfPane = env.TMUX_PANE ?? null;
     this.defaultCwd = defaultCwd;
     void this.allocator.ensureWorkspaceKeybinds().catch(() => undefined);
+    // Opportunistic housekeeping: stale job logs from earlier sessions.
+    void pruneOldLogs(config.logDir).catch(() => undefined);
   }
 
   private readonly defaultCwd: string;
@@ -298,6 +306,7 @@ export class SidemuxService {
         duration_ms: 0,
         tail: "",
         closed: false,
+        log_file: job.logFile,
       };
     }
 
@@ -337,6 +346,7 @@ export class SidemuxService {
         duration_ms: result.elapsedMs,
         tail,
         closed: closed || trimmed.includes(job.paneId),
+        log_file: job.logFile,
       };
     } catch (error) {
       // The pane can vanish mid-run: a command that exits the shell (`exit`,
@@ -359,6 +369,7 @@ export class SidemuxService {
         duration_ms: Date.now() - job.startedAt,
         tail: "",
         closed: true,
+        log_file: job.logFile,
       };
     }
   }
@@ -490,6 +501,7 @@ export class SidemuxService {
       cursor_reset: cursorReset,
       job_status: job?.status ?? null,
       exit_code: job?.exitCode ?? null,
+      log_file: job?.logFile ?? null,
     };
   }
 
@@ -554,6 +566,7 @@ export class SidemuxService {
         description: pane.description,
         job_id: job?.jobId ?? null,
         job_status: job?.status ?? null,
+        log_file: job?.logFile ?? null,
       });
     }
     return listed;
@@ -702,14 +715,35 @@ export class SidemuxService {
     throw new Error("provide job_id or pane");
   }
 
-  /** Everything the job printed (echo line included, sentinel stripped). */
+  /**
+   * Everything the job printed (echo line included, sentinel stripped).
+   * Normally captured from the pane — but when the pane's history-limit has
+   * silently discarded the start of the job's output, the job's log file is
+   * served instead: it always holds the complete output. Loss is detected by
+   * the job's own echoed launch line (sentinel format marker + the quoted job
+   * id — a pair no real output carries) being absent from the capture, which
+   * is exact even though tmux's line counters shift once history is trimmed.
+   * Any log-read failure falls back to the (truncated) pane capture.
+   */
   private async captureJobRegion(job: Job): Promise<string[]> {
     const state = await this.client.paneState(job.paneId);
     const start = clampCaptureStart(
       state,
       job.baselineLines - 1 - state.historySize,
     );
-    return this.client.capturePane(job.paneId, start, state.cursorY);
+    const lines = await this.client.capturePane(job.paneId, start, state.cursorY);
+    const echoMarker = `'${job.jobId}'`;
+    const hasJobStart = lines.some(
+      (line) => line.includes(SENTINEL_MARKER) && line.includes(echoMarker),
+    );
+    if (hasJobStart || job.logFile === null) {
+      return lines;
+    }
+    try {
+      return await readJobLog(job.logFile, job.jobId);
+    } catch {
+      return lines; // log missing/unreadable — the capture is the best we have
+    }
   }
 
   private async jobTail(

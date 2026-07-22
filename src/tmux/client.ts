@@ -421,6 +421,20 @@ export class TmuxClient {
     await this.run(["set-option", "-w", "-u", "-t", window, name]);
   }
 
+  /**
+   * Pipe everything the pane outputs into a shell command's stdin (tmux
+   * pipe-pane). Replaces any pipe already open on the pane — exactly what a
+   * new job on a reused pane wants.
+   */
+  async pipePane(paneId: string, shellCommand: string): Promise<void> {
+    await this.run(["pipe-pane", "-t", paneId, shellCommand]);
+  }
+
+  /** Close the pane's output pipe, if one is open. */
+  async pipePaneStop(paneId: string): Promise<void> {
+    await this.run(["pipe-pane", "-t", paneId]);
+  }
+
   async killPane(paneId: string): Promise<void> {
     await this.run(["kill-pane", "-t", paneId]);
   }

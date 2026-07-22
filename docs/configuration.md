@@ -124,6 +124,7 @@ The complete set, for MCP `env` blocks (highest-precedence layer):
 | `SIDEMUX_PANE_HEADER`       | on          | `0` hides the per-pane header                                                                   |
 | `SIDEMUX_CLOSE_ON_SUCCESS`  | off         | `1` auto-closes panes after exit `0`                                                            |
 | `SIDEMUX_IDLE_PANE_TTL_MS`  | `900000`    | Idle-pane garbage-collection TTL in ms                                                          |
+| `SIDEMUX_LOG_DIR`           | XDG state   | Directory for per-job full-output log files (default `$XDG_STATE_HOME/sidemux/logs`, i.e. `~/.local/state/sidemux/logs`) |
 
 Rule of thumb: put personal, machine-wide preferences in the global file; use
 env vars only for per-project or per-client overrides.

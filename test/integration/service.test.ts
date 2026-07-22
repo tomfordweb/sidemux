@@ -6,6 +6,9 @@ import { loadConfig } from "../../src/config.js";
 import { SidemuxService } from "../../src/service.js";
 import { TmuxFixture, tmuxAvailable } from "./helpers/tmux-fixture.js";
 
+// Keep per-job log files out of the developer's real state dir.
+const LOG_DIR = join(tmpdir(), `smux-test-logs-${process.pid}`);
+
 describe.skipIf(!tmuxAvailable())(
   "SidemuxService end-to-end on real tmux",
   () => {
@@ -17,7 +20,7 @@ describe.skipIf(!tmuxAvailable())(
       // Simulate the agent living in the fixture's first pane, default cwd /tmp.
       service = new SidemuxService(
         fx.client,
-        loadConfig({ SIDEMUX_PANE_SHELL: "sh" }),
+        loadConfig({ SIDEMUX_PANE_SHELL: "sh", SIDEMUX_LOG_DIR: LOG_DIR }),
         { TMUX: "fixture", TMUX_PANE: fx.firstPane },
         "/tmp",
       );
@@ -338,7 +341,11 @@ describe.skipIf(!tmuxAvailable())(
     test("SIDEMUX_CLOSE_ON_SUCCESS closes on exit 0 but keeps a failed pane", async () => {
       const closer = new SidemuxService(
         fx.client,
-        loadConfig({ SIDEMUX_PANE_SHELL: "sh", SIDEMUX_CLOSE_ON_SUCCESS: "1" }),
+        loadConfig({
+          SIDEMUX_PANE_SHELL: "sh",
+          SIDEMUX_CLOSE_ON_SUCCESS: "1",
+          SIDEMUX_LOG_DIR: LOG_DIR,
+        }),
         { TMUX: "fixture", TMUX_PANE: fx.firstPane },
         "/tmp",
       );
@@ -401,7 +408,7 @@ describe.skipIf(!tmuxAvailable())(
       });
       const sibling = new SidemuxService(
         fx.client,
-        loadConfig({ SIDEMUX_PANE_SHELL: "sh" }),
+        loadConfig({ SIDEMUX_PANE_SHELL: "sh", SIDEMUX_LOG_DIR: LOG_DIR }),
         { TMUX: "fixture", TMUX_PANE: fx.firstPane },
         "/tmp",
       );
@@ -421,7 +428,11 @@ describe.skipIf(!tmuxAvailable())(
       // by the TTL too — retention, not exit code, decides.
       const trimming = new SidemuxService(
         fx.client,
-        loadConfig({ SIDEMUX_PANE_SHELL: "sh", SIDEMUX_IDLE_PANE_TTL_MS: "0" }),
+        loadConfig({
+          SIDEMUX_PANE_SHELL: "sh",
+          SIDEMUX_IDLE_PANE_TTL_MS: "0",
+          SIDEMUX_LOG_DIR: LOG_DIR,
+        }),
         { TMUX: "fixture", TMUX_PANE: fx.firstPane },
         "/tmp",
       );
@@ -499,7 +510,7 @@ describe.skipIf(!tmuxAvailable())(
       // A server rooted at the monorepo; project resolution is relative to it.
       const mono = new SidemuxService(
         fx.client,
-        loadConfig({ SIDEMUX_PANE_SHELL: "sh" }),
+        loadConfig({ SIDEMUX_PANE_SHELL: "sh", SIDEMUX_LOG_DIR: LOG_DIR }),
         { TMUX: "fixture", TMUX_PANE: fx.firstPane },
         root,
       );
@@ -539,7 +550,7 @@ describe.skipIf(!tmuxAvailable())(
 
       const scripted = new SidemuxService(
         fx.client,
-        loadConfig({ SIDEMUX_PANE_SHELL: "sh" }),
+        loadConfig({ SIDEMUX_PANE_SHELL: "sh", SIDEMUX_LOG_DIR: LOG_DIR }),
         { TMUX: "fixture", TMUX_PANE: fx.firstPane },
         root,
       );
