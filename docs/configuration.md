@@ -39,6 +39,9 @@ Every key, its environment-variable equivalent, and its default:
 | `close_on_success`      | bool    | `SIDEMUX_CLOSE_ON_SUCCESS` (`1` = on) | `false`           | Auto-close a pane after its foreground command exits `0` (failed panes stay up)                       |
 | `idle_pane_ttl_ms`      | int ≥ 0 | `SIDEMUX_IDLE_PANE_TTL_MS`            | `900000` (15 min) | How long an idle finished one-shot pane survives before garbage collection                            |
 | `max_output_bytes`      | int > 0 | `SIDEMUX_MAX_OUTPUT_BYTES`            | `8192`            | Hard cap on bytes returned by a single `read`                                                         |
+| `log_dir`               | string  | `SIDEMUX_LOG_DIR`                     | XDG state dir     | Directory for per-job full-output logs; `"off"` disables job logging entirely                         |
+| `log_max_age_ms`        | int ≥ 0 | `SIDEMUX_LOG_MAX_AGE_MS`              | `604800000` (7 d) | How long a job log survives before pruning; `0` = never prune by age                                  |
+| `log_max_total_bytes`   | int ≥ 0 | `SIDEMUX_LOG_MAX_TOTAL_BYTES`         | `268435456` (256 MiB) | Disk budget for the log directory, oldest logs evicted first; `0` = no size cap                   |
 | `managed_only`          | bool    | `SIDEMUX_MANAGED_ONLY` (`1` = on)     | `false`           | Restrict write operations (`run` into an existing pane, `send_keys`, `kill`) to sidemux-created panes |
 | `shell`                 | string  | `SIDEMUX_SHELL`                       | auto-detect       | Force the exit-sentinel dialect: `"fish"`, or any other value for POSIX                               |
 | `[dashboard]` `key`     | string  | `SIDEMUX_DASHBOARD_KEY`               | `"e"`             | Key after the tmux prefix that opens the workspace dashboard popup                                    |
@@ -124,7 +127,9 @@ The complete set, for MCP `env` blocks (highest-precedence layer):
 | `SIDEMUX_PANE_HEADER`       | on          | `0` hides the per-pane header                                                                   |
 | `SIDEMUX_CLOSE_ON_SUCCESS`  | off         | `1` auto-closes panes after exit `0`                                                            |
 | `SIDEMUX_IDLE_PANE_TTL_MS`  | `900000`    | Idle-pane garbage-collection TTL in ms                                                          |
-| `SIDEMUX_LOG_DIR`           | XDG state   | Directory for per-job full-output log files (default `$XDG_STATE_HOME/sidemux/logs`, i.e. `~/.local/state/sidemux/logs`) |
+| `SIDEMUX_LOG_DIR`           | XDG state   | Directory for per-job full-output log files (default `$XDG_STATE_HOME/sidemux/logs`, i.e. `~/.local/state/sidemux/logs`); `off` disables job logging |
+| `SIDEMUX_LOG_MAX_AGE_MS`    | `604800000` | Job-log retention in ms (7 days); `0` = never prune by age                                      |
+| `SIDEMUX_LOG_MAX_TOTAL_BYTES` | `268435456` | Disk budget for the log dir (256 MiB), oldest evicted first; `0` = no size cap                 |
 
 Rule of thumb: put personal, machine-wide preferences in the global file; use
 env vars only for per-project or per-client overrides.

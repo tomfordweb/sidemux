@@ -1,5 +1,9 @@
 import { readdir, readFile, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
+import {
+  DEFAULT_LOG_MAX_AGE_MS,
+  DEFAULT_LOG_MAX_TOTAL_BYTES,
+} from "../config.js";
 import { sentinelRegex } from "./jobs.js";
 
 /**
@@ -68,36 +72,78 @@ export async function readJobLog(
   return sentinelAt === -1 ? lines : lines.slice(0, sentinelAt + 1);
 }
 
-/** Logs older than this are deleted opportunistically at server startup. */
-export const LOG_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+/** Retention limits for the log directory; 0 disables that limit. */
+export interface PruneOptions {
+  /** Logs older than this are deleted. */
+  maxAgeMs?: number;
+  /** Byte budget for the whole directory; oldest logs go first. */
+  maxTotalBytes?: number;
+  /** Injected clock, for tests. */
+  now?: number;
+}
+
+const LOG_FILE_NAME = /^j[0-9a-f]+\.log$/;
 
 /**
- * Delete stale job logs. Best-effort by design (races with other sidemux
- * servers sharing the dir are harmless — losing a delete just retries next
- * startup); callers fire-and-forget.
+ * Delete stale job logs, by age and then by total size. Age alone cannot
+ * bound the directory — one job printing a gigabyte inside the retention
+ * window would sit there for a week — so whatever survives the age pass is
+ * evicted oldest-first until the byte budget is met.
+ *
+ * Best-effort by design (races with other sidemux servers sharing the dir are
+ * harmless — losing a delete just retries next startup); callers
+ * fire-and-forget.
  */
 export async function pruneOldLogs(
   logDir: string,
-  maxAgeMs: number = LOG_MAX_AGE_MS,
-  now: number = Date.now(),
+  options: PruneOptions = {},
 ): Promise<void> {
+  const {
+    maxAgeMs = DEFAULT_LOG_MAX_AGE_MS,
+    maxTotalBytes = DEFAULT_LOG_MAX_TOTAL_BYTES,
+    now = Date.now(),
+  } = options;
+
   let entries: string[];
   try {
     entries = await readdir(logDir);
   } catch {
     return; // dir not created yet — nothing to prune
   }
+
+  const kept: { path: string; mtimeMs: number; size: number }[] = [];
+  let total = 0;
   for (const entry of entries) {
-    if (!/^j[0-9a-f]+\.log$/.test(entry)) {
+    if (!LOG_FILE_NAME.test(entry)) {
       continue;
     }
     const path = join(logDir, entry);
     try {
-      if (now - (await stat(path)).mtimeMs > maxAgeMs) {
+      const info = await stat(path);
+      if (maxAgeMs > 0 && now - info.mtimeMs > maxAgeMs) {
         await unlink(path);
+        continue;
       }
+      kept.push({ path, mtimeMs: info.mtimeMs, size: info.size });
+      total += info.size;
     } catch {
       // deleted concurrently or unreadable — skip
+    }
+  }
+
+  if (maxTotalBytes <= 0 || total <= maxTotalBytes) {
+    return;
+  }
+  kept.sort((a, b) => a.mtimeMs - b.mtimeMs);
+  for (const log of kept) {
+    if (total <= maxTotalBytes) {
+      return;
+    }
+    try {
+      await unlink(log.path);
+      total -= log.size;
+    } catch {
+      // already gone — its bytes are still counted, so the next pass retries
     }
   }
 }

@@ -153,7 +153,12 @@ export class SidemuxService {
     this.defaultCwd = defaultCwd;
     void this.allocator.ensureWorkspaceKeybinds().catch(() => undefined);
     // Opportunistic housekeeping: stale job logs from earlier sessions.
-    void pruneOldLogs(config.logDir).catch(() => undefined);
+    if (config.logDir !== null) {
+      void pruneOldLogs(config.logDir, {
+        maxAgeMs: config.logMaxAgeMs,
+        maxTotalBytes: config.logMaxTotalBytes,
+      }).catch(() => undefined);
+    }
   }
 
   private readonly defaultCwd: string;

@@ -260,6 +260,9 @@ Environment variables (in the MCP server config) override both files:
 | `SIDEMUX_PANE_HEADER`       | on          | Show a `command · %id` header on sidemux panes only (tmux pane border); `0` = off                                        |
 | `SIDEMUX_CLOSE_ON_SUCCESS`  | off         | `1` = auto-close a pane after its command exits `0` (failed panes stay up)                                               |
 | `SIDEMUX_IDLE_PANE_TTL_MS`  | `900000`    | How long an idle finished one-shot pane survives before garbage collection (15 min)                                      |
+| `SIDEMUX_LOG_DIR`           | XDG state   | Where per-job full-output logs are written (`~/.local/state/sidemux/logs`); `off` disables job logging                    |
+| `SIDEMUX_LOG_MAX_AGE_MS`    | `604800000` | How long a job log survives before pruning (7 days); `0` = never prune by age                                            |
+| `SIDEMUX_LOG_MAX_TOTAL_BYTES` | `268435456` | Disk budget for the log directory (256 MiB); oldest logs are evicted first, `0` = no size cap                          |
 
 Every variable except `SIDEMUX_AGENT_ID` has a config-file equivalent — see
 [docs/configuration.md](docs/configuration.md) for the mapping.

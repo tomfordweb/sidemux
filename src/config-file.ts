@@ -30,6 +30,10 @@ export interface FileConfig {
   closeOnSuccess?: boolean | undefined;
   idlePaneTtlMs?: number | undefined;
   maxOutputBytes?: number | undefined;
+  /** Directory for per-job logs, or "off" to disable them. */
+  logDir?: string | undefined;
+  logMaxAgeMs?: number | undefined;
+  logMaxTotalBytes?: number | undefined;
   managedOnly?: boolean | undefined;
   shell?: string | undefined;
   dashboardKey?: string | undefined;
@@ -55,6 +59,9 @@ const globalSchema = z
     close_on_success: z.boolean().optional(),
     idle_pane_ttl_ms: z.number().int().nonnegative().optional(),
     max_output_bytes: z.number().int().positive().optional(),
+    log_dir: z.string().optional(),
+    log_max_age_ms: z.number().int().nonnegative().optional(),
+    log_max_total_bytes: z.number().int().nonnegative().optional(),
     managed_only: z.boolean().optional(),
     shell: z.string().optional(),
     dashboard: z
@@ -90,6 +97,9 @@ const KNOWN_GLOBAL_KEYS = new Set([
   "close_on_success",
   "idle_pane_ttl_ms",
   "max_output_bytes",
+  "log_dir",
+  "log_max_age_ms",
+  "log_max_total_bytes",
   "managed_only",
   "shell",
   "dashboard",
@@ -153,6 +163,9 @@ export function loadGlobalFileConfig(
     closeOnSuccess: data.close_on_success,
     idlePaneTtlMs: data.idle_pane_ttl_ms,
     maxOutputBytes: data.max_output_bytes,
+    logDir: data.log_dir,
+    logMaxAgeMs: data.log_max_age_ms,
+    logMaxTotalBytes: data.log_max_total_bytes,
     managedOnly: data.managed_only,
     shell: data.shell,
     dashboardKey: data.dashboard?.key,
@@ -236,6 +249,18 @@ export function globalConfigTemplate(): string {
 
 # Hard cap on bytes returned by a single read (SIDEMUX_MAX_OUTPUT_BYTES)
 #max_output_bytes = 8192
+
+# Where per-job full-output logs are written (SIDEMUX_LOG_DIR).
+# Empty = $XDG_STATE_HOME/sidemux/logs; "off" disables job logging entirely.
+#log_dir = ""
+
+# How long a job log survives, in ms; 0 = never prune by age
+# (SIDEMUX_LOG_MAX_AGE_MS; default 7 days)
+#log_max_age_ms = 604800000
+
+# Disk budget for the log directory, in bytes; oldest logs are evicted first,
+# 0 = no size cap (SIDEMUX_LOG_MAX_TOTAL_BYTES; default 256 MiB)
+#log_max_total_bytes = 268435456
 
 # Restrict writes to panes sidemux created (SIDEMUX_MANAGED_ONLY=1)
 #managed_only = false
