@@ -176,3 +176,101 @@ describe("JobManager", () => {
     expect(longLived.status).toBe("running");
   });
 });
+
+describe("JobManager per-job log files", () => {
+  interface PipeStub {
+    client: TmuxClient;
+    pipePane: ReturnType<typeof vi.fn>;
+    pipePaneStop: ReturnType<typeof vi.fn>;
+    sendLiteral: ReturnType<typeof vi.fn>;
+  }
+
+  function stubClientWithPipes(): PipeStub {
+    const pipePane = vi.fn(async () => undefined);
+    const pipePaneStop = vi.fn(async () => undefined);
+    const sendLiteral = vi.fn(async () => undefined);
+    const client = {
+      paneState: vi.fn(async () => ({
+        historySize: 0,
+        historyLimit: 2000,
+        cursorY: 0,
+        paneHeight: 30,
+        currentCommand: "sh",
+        currentPath: "/proj",
+      })),
+      sendLiteral,
+      sendKeys: vi.fn(async () => undefined),
+      pipePane,
+      pipePaneStop,
+    } as unknown as TmuxClient;
+    return { client, pipePane, pipePaneStop, sendLiteral };
+  }
+
+  async function tempLogDir(): Promise<string> {
+    const { mkdtemp } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    return mkdtemp(join(tmpdir(), "smux-jobs-"));
+  }
+
+  test("launch opens the pane's pipe onto the log file before typing", async () => {
+    const stub = stubClientWithPipes();
+    const logDir = await tempLogDir();
+    const manager = new JobManager(stub.client, logDir);
+    const job = await manager.launch("%1", "echo hi", "posix");
+
+    expect(job.logFile).toBe(`${logDir}/${job.jobId}.log`);
+    expect(stub.pipePane).toHaveBeenCalledWith(
+      "%1",
+      `exec cat >> '${logDir}/${job.jobId}.log'`,
+    );
+    // The pipe must be live before the command's echo, or the file misses it.
+    expect(stub.pipePane.mock.invocationCallOrder[0]).toBeLessThan(
+      stub.sendLiteral.mock.invocationCallOrder[0] ?? Infinity,
+    );
+  });
+
+  test("without a logDir no pipe is opened and logFile is null", async () => {
+    const stub = stubClientWithPipes();
+    const manager = new JobManager(stub.client);
+    const job = await manager.launch("%1", "echo hi", "posix");
+    expect(job.logFile).toBeNull();
+    expect(stub.pipePane).not.toHaveBeenCalled();
+  });
+
+  test("a pipe-pane failure degrades to logFile null but still launches", async () => {
+    const stub = stubClientWithPipes();
+    stub.pipePane.mockRejectedValueOnce(new Error("tmux busy"));
+    const manager = new JobManager(stub.client, await tempLogDir());
+    const job = await manager.launch("%1", "echo hi", "posix");
+    expect(job.logFile).toBeNull();
+    expect(job.status).toBe("running");
+    expect(stub.sendLiteral).toHaveBeenCalled();
+  });
+
+  test("observed completion closes the pane's pipe", async () => {
+    const stub = stubClientWithPipes();
+    const manager = new JobManager(stub.client, await tempLogDir());
+    const job = await manager.launch("%1", "echo hi", "posix");
+    manager.applyScan(job, [`<<SMUX:${job.jobId}:0>>`]);
+    expect(stub.pipePaneStop).toHaveBeenCalledWith("%1");
+  });
+
+  test("interrupt closes the pane's pipe too", async () => {
+    const stub = stubClientWithPipes();
+    const manager = new JobManager(stub.client, await tempLogDir());
+    const job = await manager.launch("%1", "sleep 99", "posix");
+    manager.markInterrupted(job);
+    expect(stub.pipePaneStop).toHaveBeenCalledWith("%1");
+  });
+
+  test("the pipe is left alone when a newer job re-piped the pane", async () => {
+    const stub = stubClientWithPipes();
+    const manager = new JobManager(stub.client, await tempLogDir());
+    const first = await manager.launch("%1", "echo one", "posix");
+    await manager.launch("%1", "echo two", "posix");
+    // First job's completion is observed late — its pipe now belongs to job two.
+    manager.applyScan(first, [`<<SMUX:${first.jobId}:0>>`]);
+    expect(stub.pipePaneStop).not.toHaveBeenCalled();
+  });
+});

@@ -1,8 +1,10 @@
 import { randomBytes } from "node:crypto";
+import { mkdir } from "node:fs/promises";
 import { isKnownShell, type ShellDialect } from "../config.js";
 import type { TmuxClient } from "../tmux/client.js";
 import type { Job } from "../types.js";
-import { totalLines } from "./shared.js";
+import { jobLogPath } from "./logs.js";
+import { shellQuote, totalLines } from "./shared.js";
 
 export function makeJobId(): string {
   return `j${randomBytes(3).toString("hex")}`;
@@ -96,8 +98,13 @@ const MAX_FINISHED_JOBS = 100;
 
 export class JobManager {
   private readonly jobs = new Map<string, Job>();
+  private logDirReady = false;
 
-  constructor(private readonly client: TmuxClient) {}
+  /** logDir = null disables per-job log files (unit tests, callers without state). */
+  constructor(
+    private readonly client: TmuxClient,
+    private readonly logDir: string | null = null,
+  ) {}
 
   /**
    * Drop the oldest finished jobs beyond MAX_FINISHED_JOBS so the registry
@@ -161,6 +168,11 @@ export class JobManager {
       baselineLines: totalLines(state),
       status: "running",
       exitCode: null,
+      // Tee the pane's raw output stream to the job's log file BEFORE typing
+      // the command, so the file is complete from the echo onward. pipe-pane
+      // taps the stream between pty and tmux — the command itself is never
+      // wrapped, so exit-code/sentinel semantics and tty-ness are untouched.
+      logFile: await this.startLog(paneId, jobId),
     };
 
     await this.client.sendLiteral(
@@ -175,6 +187,44 @@ export class JobManager {
   }
 
   /**
+   * Open the pane's output pipe onto this job's log file. Best-effort: a
+   * failure (unwritable state dir, tmux hiccup) returns null and the run
+   * proceeds without a log — logging must never break launching.
+   */
+  private async startLog(
+    paneId: string,
+    jobId: string,
+  ): Promise<string | null> {
+    if (this.logDir === null) {
+      return null;
+    }
+    try {
+      if (!this.logDirReady) {
+        await mkdir(this.logDir, { recursive: true });
+        this.logDirReady = true;
+      }
+      const logFile = jobLogPath(this.logDir, jobId);
+      await this.client.pipePane(paneId, `exec cat >> ${shellQuote(logFile)}`);
+      return logFile;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Close the pane's output pipe once a job has finished, so a human typing
+   * at the freed prompt does not leak into the job's log. Skipped when a
+   * newer job already re-piped the pane (its log owns the pipe now), and
+   * fire-and-forget: the pane may already be gone.
+   */
+  private stopLog(job: Job): void {
+    if (job.logFile === null || this.findByPane(job.paneId) !== job) {
+      return;
+    }
+    void this.client.pipePaneStop(job.paneId).catch(() => undefined);
+  }
+
+  /**
    * Mark a job as interrupted. Ctrl-C aborts the shell's entire command
    * list, including the `; printf` sentinel — so no exit code ever appears
    * in the pane. 130 (128+SIGINT) is synthesized to match shell convention.
@@ -183,6 +233,7 @@ export class JobManager {
     if (job.status === "running") {
       job.status = "failed";
       job.exitCode = 130;
+      this.stopLog(job);
     }
     return job;
   }
@@ -196,6 +247,7 @@ export class JobManager {
     if (exitCode !== null) {
       job.exitCode = exitCode;
       job.status = exitCode === 0 ? "done" : "failed";
+      this.stopLog(job);
     }
     return job;
   }

@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   DEFAULT_IDLE_PANE_TTL_MS,
+  DEFAULT_LOG_MAX_AGE_MS,
+  DEFAULT_LOG_MAX_TOTAL_BYTES,
   isKnownShell,
   loadConfig,
   shellDialectFromCommand,
@@ -27,6 +29,9 @@ describe("loadConfig", () => {
       paneHeader: true,
       closeOnSuccess: false,
       idlePaneTtlMs: DEFAULT_IDLE_PANE_TTL_MS,
+      logDir: expect.stringMatching(/\/sidemux\/logs$/),
+      logMaxAgeMs: DEFAULT_LOG_MAX_AGE_MS,
+      logMaxTotalBytes: DEFAULT_LOG_MAX_TOTAL_BYTES,
       agentId: expect.stringMatching(/^cwd-[0-9a-f]{8}$/),
       agentLabel: expect.stringMatching(/^cwd-[0-9a-f]{8}$/),
     });
@@ -47,6 +52,9 @@ describe("loadConfig", () => {
       SIDEMUX_PANE_HEADER: "0",
       SIDEMUX_CLOSE_ON_SUCCESS: "1",
       SIDEMUX_IDLE_PANE_TTL_MS: "60000",
+      SIDEMUX_LOG_DIR: "/var/log/sidemux",
+      SIDEMUX_LOG_MAX_AGE_MS: "3600000",
+      SIDEMUX_LOG_MAX_TOTAL_BYTES: "1048576",
       SIDEMUX_AGENT_ID: "agent-abcdef123456",
     });
     expect(config).toEqual({
@@ -63,9 +71,73 @@ describe("loadConfig", () => {
       paneHeader: false,
       closeOnSuccess: true,
       idlePaneTtlMs: 60_000,
+      logDir: "/var/log/sidemux",
+      logMaxAgeMs: 3_600_000,
+      logMaxTotalBytes: 1_048_576,
       agentId: "agent-abcdef123456",
       agentLabel: "agent-abcdef",
     });
+  });
+
+  test("logDir honors XDG_STATE_HOME when SIDEMUX_LOG_DIR is unset", () => {
+    expect(loadConfig({ XDG_STATE_HOME: "/xdg/state" }, "/proj").logDir).toBe(
+      "/xdg/state/sidemux/logs",
+    );
+  });
+
+  test("SIDEMUX_LOG_DIR=off disables job logging", () => {
+    for (const value of ["off", "OFF", "0", "false", "none"]) {
+      expect(loadConfig({ SIDEMUX_LOG_DIR: value }, "/proj").logDir).toBeNull();
+    }
+  });
+
+  test("an empty SIDEMUX_LOG_DIR falls through to the default", () => {
+    expect(
+      loadConfig({ SIDEMUX_LOG_DIR: "  ", XDG_STATE_HOME: "/xdg" }, "/proj")
+        .logDir,
+    ).toBe("/xdg/sidemux/logs");
+  });
+
+  test("log settings fall back to the config file, env still wins", () => {
+    const file = {
+      logDir: "/file/logs",
+      logMaxAgeMs: 1000,
+      logMaxTotalBytes: 2000,
+    };
+    expect(loadConfig({}, "/proj", file)).toMatchObject({
+      logDir: "/file/logs",
+      logMaxAgeMs: 1000,
+      logMaxTotalBytes: 2000,
+    });
+    expect(
+      loadConfig(
+        {
+          SIDEMUX_LOG_DIR: "/env/logs",
+          SIDEMUX_LOG_MAX_AGE_MS: "9",
+          SIDEMUX_LOG_MAX_TOTAL_BYTES: "8",
+        },
+        "/proj",
+        file,
+      ),
+    ).toMatchObject({
+      logDir: "/env/logs",
+      logMaxAgeMs: 9,
+      logMaxTotalBytes: 8,
+    });
+  });
+
+  test("log_dir = \"off\" in the config file disables logging too", () => {
+    expect(loadConfig({}, "/proj", { logDir: "off" }).logDir).toBeNull();
+  });
+
+  test("negative and unparseable retention values clamp to defaults", () => {
+    expect(loadConfig({ SIDEMUX_LOG_MAX_AGE_MS: "-5" }).logMaxAgeMs).toBe(0);
+    expect(loadConfig({ SIDEMUX_LOG_MAX_AGE_MS: "nope" }).logMaxAgeMs).toBe(
+      DEFAULT_LOG_MAX_AGE_MS,
+    );
+    expect(
+      loadConfig({ SIDEMUX_LOG_MAX_TOTAL_BYTES: "0" }).logMaxTotalBytes,
+    ).toBe(0);
   });
 
   test("default agent id is stable per working directory", () => {

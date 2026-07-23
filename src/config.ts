@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { FileConfig } from "./config-file.js";
 
 export type ShellDialect = "posix" | "fish";
@@ -45,6 +47,19 @@ export interface Config {
   closeOnSuccess: boolean;
   /** How long an idle one-shot pane survives before garbage collection. */
   idlePaneTtlMs: number;
+  /**
+   * Directory holding per-job output log files (tmux pipe-pane tees every
+   * job's full output here, immune to the pane's history-limit). Null
+   * disables per-job logging entirely — nothing is written to disk.
+   */
+  logDir: string | null;
+  /** Job logs older than this are pruned. 0 or less disables age pruning. */
+  logMaxAgeMs: number;
+  /**
+   * Total byte budget for the log directory; oldest logs are evicted until
+   * the directory fits. 0 or less disables the size cap.
+   */
+  logMaxTotalBytes: number;
   /** Stable owner id for this MCP server/agent session. */
   agentId: string;
   /** Short owner id used in tmux window names. */
@@ -61,6 +76,16 @@ const DASHBOARD_DENSITIES = new Set<DashboardDensity>([
 ]);
 
 export const DEFAULT_IDLE_PANE_TTL_MS = 15 * 60 * 1000;
+
+/** Job logs survive a week by default — long enough to outlive a work session. */
+export const DEFAULT_LOG_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Default disk budget for job logs. Age alone does not bound the directory:
+ * a single chatty job can write gigabytes in minutes, so the size cap is what
+ * actually keeps the state dir from eating the disk.
+ */
+export const DEFAULT_LOG_MAX_TOTAL_BYTES = 256 * 1024 * 1024;
 
 /** Parse SIDEMUX_DASHBOARD_DENSITY; unknown values warn and fall back to normal. */
 function parseDashboardDensity(raw: string | undefined): DashboardDensity {
@@ -102,6 +127,59 @@ function parseAgentId(env: NodeJS.ProcessEnv, defaultCwd: string): string {
     .digest("hex")
     .slice(0, 8);
   return `cwd-${hash}`;
+}
+
+/** Values that turn per-job logging off rather than naming a directory. */
+const LOG_DIR_OFF = new Set(["off", "0", "false", "none", "disabled"]);
+
+/**
+ * Interpret one log-dir setting: a directory path, `null` for "logging off",
+ * or `undefined` for "not set, fall through to the next layer". An empty
+ * string counts as unset so `SIDEMUX_LOG_DIR=` behaves like every other
+ * env var here; use `off` to actually disable logging.
+ */
+function normalizeLogDir(raw: string | undefined): string | null | undefined {
+  const value = raw?.trim();
+  if (!value) {
+    return undefined;
+  }
+  return LOG_DIR_OFF.has(value.toLowerCase()) ? null : value;
+}
+
+/**
+ * Where per-job log files live. SIDEMUX_LOG_DIR wins, then the config file,
+ * then the XDG state dir (`~/.local/state/sidemux/logs`) — logs are runtime
+ * state, not config. Either layer may say `off` to disable logging outright,
+ * for callers who would rather not have command output on disk at all.
+ */
+function parseLogDir(env: NodeJS.ProcessEnv, file: FileConfig): string | null {
+  const fromEnv = normalizeLogDir(env.SIDEMUX_LOG_DIR);
+  if (fromEnv !== undefined) {
+    return fromEnv;
+  }
+  const fromFile = normalizeLogDir(file.logDir);
+  if (fromFile !== undefined) {
+    return fromFile;
+  }
+  const stateHome =
+    env.XDG_STATE_HOME?.trim() || join(homedir(), ".local", "state");
+  return join(stateHome, "sidemux", "logs");
+}
+
+/**
+ * Numeric setting with env > file > default precedence. Negative values are
+ * clamped to 0, which every log-retention knob reads as "no limit".
+ */
+function parseRetention(
+  raw: string | undefined,
+  fileValue: number | undefined,
+  fallback: number,
+): number {
+  const parsed = Number.parseInt(raw ?? "", 10);
+  if (Number.isFinite(parsed)) {
+    return Math.max(0, parsed);
+  }
+  return fileValue !== undefined ? Math.max(0, fileValue) : fallback;
 }
 
 export function shellDialectFromCommand(command: string): ShellDialect | null {
@@ -205,6 +283,17 @@ export function loadConfig(
         : fileTtl !== undefined && fileTtl >= 0
           ? fileTtl
           : DEFAULT_IDLE_PANE_TTL_MS,
+    logDir: parseLogDir(env, file),
+    logMaxAgeMs: parseRetention(
+      env.SIDEMUX_LOG_MAX_AGE_MS,
+      file.logMaxAgeMs,
+      DEFAULT_LOG_MAX_AGE_MS,
+    ),
+    logMaxTotalBytes: parseRetention(
+      env.SIDEMUX_LOG_MAX_TOTAL_BYTES,
+      file.logMaxTotalBytes,
+      DEFAULT_LOG_MAX_TOTAL_BYTES,
+    ),
     agentId,
     agentLabel: shortAgentLabel(agentId),
   };

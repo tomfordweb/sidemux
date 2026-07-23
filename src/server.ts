@@ -63,6 +63,7 @@ const listedPaneSchema = z.object({
   description: z.string().nullable(),
   job_id: z.string().nullable(),
   job_status: z.enum(["running", "done", "failed", "unknown"]).nullable(),
+  log_file: z.string().nullable(),
 });
 
 export function buildServer(service: SidemuxService): McpServer {
@@ -77,7 +78,9 @@ export function buildServer(service: SidemuxService): McpServer {
         "pane automatically (in your current working directory) if none is given. Blocks up " +
         'to timeout_ms; if the command is still running you get status="running" — call wait ' +
         "next, do NOT poll with read. The returned tail is usually all you need on success; " +
-        "only read more on failure. Use background=true for dev servers and watchers.",
+        "only read more on failure. Use background=true for dev servers and watchers. The " +
+        "job's complete output is also teed to log_file (raw terminal bytes), which you can " +
+        "grep/tail directly — useful for long jobs and output beyond the pane's scrollback.",
       inputSchema: {
         command: z.string().describe("Shell command to run"),
         description: z
@@ -134,6 +137,12 @@ export function buildServer(service: SidemuxService): McpServer {
           .optional()
           .describe("Last lines of the command's output"),
         closed: z.boolean(),
+        log_file: z
+          .string()
+          .nullable()
+          .describe(
+            "File holding the job's complete output (survives pane scrollback limits)",
+          ),
       },
     },
     async (args, extra) => {
@@ -218,7 +227,8 @@ export function buildServer(service: SidemuxService): McpServer {
         'Read output from a pane. Default since="last-read" returns only NEW output since ' +
         "your previous read — cheap to call repeatedly. When investigating a failure, grep " +
         'first (e.g. grep="error|FAIL" with context), tail second; never dump full scrollback. ' +
-        'since="job" returns everything a job printed; since="screen" the visible pane.',
+        'since="job" returns everything a job printed (served from the job\'s log file when ' +
+        'the pane\'s scrollback has overflowed); since="screen" the visible pane.',
       inputSchema: {
         job_id: z.string().optional(),
         pane: paneField,
@@ -247,6 +257,10 @@ export function buildServer(service: SidemuxService): McpServer {
         cursor_reset: z.boolean(),
         job_status: z.enum(["running", "done", "failed", "unknown"]).nullable(),
         exit_code: z.number().nullable(),
+        log_file: z
+          .string()
+          .nullable()
+          .describe("The job's complete-output log file, when a job is known"),
       },
     },
     async (args) => {
