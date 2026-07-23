@@ -99,6 +99,27 @@ A server restart loses the cursors, so the first read after a restart is a
 `cursor_reset` tail. This is an accepted trade-off for keeping the server
 stateless on disk.
 
+## Full-output job logs
+
+Every job's complete output is teed to a per-job file
+(`$XDG_STATE_HOME/sidemux/logs/<job_id>.log`, configurable via
+`SIDEMUX_LOG_DIR`, `off` to disable) using `tmux pipe-pane`. Because
+pipe-pane taps the stream between the pty and tmux, the launched command is
+never modified: exit-code sentinel semantics, tty-ness (colors, buffering),
+and the echo-scrub logic all stay exactly as they were.
+
+- The file holds **raw terminal bytes** — ANSI colors, CR overwrites, OSC
+  escapes. Agents tailing or grepping the file directly cope fine; when
+  sidemux itself serves output from the file (`read since="job"` after the
+  pane's `history-limit` has discarded early output), it sanitizes the
+  escapes first.
+- `run` and `read` return the `log_file` path so the agent (or you) can
+  `tail -f` / `grep` it without another capture.
+- Retention is bounded two ways, both piggybacking on tool calls like the
+  rest of GC: logs older than `SIDEMUX_LOG_MAX_AGE_MS` (default 7 days) are
+  pruned, and the directory is kept under `SIDEMUX_LOG_MAX_TOTAL_BYTES`
+  (default 256 MiB) by evicting the oldest files first.
+
 ## Blocking waits
 
 `wait` (and non-background `run`) polls tmux inside the server: a 100ms

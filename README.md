@@ -2,6 +2,8 @@
 
 `sidemux` is an MCP server that delegates token-heavy commands to live tmux panes in a dedicated workspace session, giving AI coding agents an efficient `run` / `wait` / `read` loop — with measured token reductions of up to **98.9%** on real-world projects.
 
+![sidemux demo: an agent runs build/test/dev through tmux panes while ingesting only a compact tail](assets/demo.gif)
+
 ## Imagine this:
 
 > **You are days away from the deadline.** Remaining budget is slim, and your
@@ -57,6 +59,8 @@ real MCP stdio — and reports the estimated tokens an agent ingests each way:
 ```bash
 sidemux benchmark --command "pnpm test" --command "pnpm build"
 ```
+
+![sidemux benchmark run ending on the savings table](assets/usage/benchmark.gif)
 
 For long-running builds or Playwright suites, increase the per-command timeout:
 
@@ -125,9 +129,9 @@ Eight tools cover the lifecycle and status of delegated commands:
 
 | Tool         | What it does                                                                                                                                                                                                                |
 | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `run`        | Runs a command in a tmux pane (auto-created in the agent's cwd). Blocks until exit or timeout; returns `job_id`, `exit_code`, and a short tail. Use `background: true` for servers and watchers.                            |
+| `run`        | Runs a command in a tmux pane (auto-created in the agent's cwd). Blocks until exit or timeout; returns `job_id`, `exit_code`, a short tail, and the job's `log_file` path. Use `background: true` for servers and watchers. |
 | `wait`       | Blocks until a job exits, output matches a regex (`until: "pattern"` — ideal for server-ready lines), or the pane goes idle (`until: "idle"` — for interactive prompts). Timeouts are re-armable: simply call `wait` again. |
-| `read`       | Token-lean output retrieval. `since: "last-read"` returns only new lines; `grep` + `context` filters; `lines` caps the tail; `max_bytes` is a hard ceiling.                                                                 |
+| `read`       | Token-lean output retrieval. `since: "last-read"` returns only new lines; `since: "job"` returns everything a job printed (served from its log file once scrollback overflows); `grep` + `context` filters; `lines` caps the tail; `max_bytes` is a hard ceiling. |
 | `send_keys`  | Types into a pane — answer prompts, send `C-c`. Always refuses the agent's own pane.                                                                                                                                        |
 | `list_panes` | Lists panes together with their sidemux job status.                                                                                                                                                                         |
 | `status`     | Summarizes the sidemux workspace grouped by tmux window/tab.                                                                                                                                                                |
@@ -167,7 +171,7 @@ idleness instead. The full design is described in
 
 ## Watching the output
 
-There are exactly two ways to look at what sidemux is running:
+Four ways to look at what sidemux is running:
 
 1. **Attach to the workspace session** — `tmux attach -t smux` (or switch to it
    from inside tmux). One window per agent, one pane per command, each pane
@@ -175,6 +179,14 @@ There are exactly two ways to look at what sidemux is running:
 2. **Press `Prefix e` from any tmux session** — opens the built-in dashboard
    popup showing every workspace pane, live. The key is configurable via
    `SIDEMUX_DASHBOARD_KEY` or the config file.
+3. **Run `sidemux dashboard`** — the same dashboard as a standalone TTY
+   program, for a terminal outside tmux.
+4. **Tail the job log** — every job's complete output is teed to a per-job
+   file (`~/.local/state/sidemux/logs/<job_id>.log`; the `run` result includes
+   the path), so `tail -f`/`grep` work even after the pane's scrollback has
+   rotated. Retention is configurable; `SIDEMUX_LOG_DIR=off` disables it.
+
+![sidemux dashboard TUI over a workspace with a dev server, test run, and build](assets/usage/dashboard.gif)
 
 ## Install (local, pre-publish)
 
