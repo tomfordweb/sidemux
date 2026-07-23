@@ -29,8 +29,10 @@ describe("sentinel", () => {
   });
 
   test("posix prefix enables pipefail with a quiet fallback, fish gets none", () => {
+    // Probed in a subshell first: `set` is a special builtin, so in dash the
+    // rejected option would otherwise abort the whole line (command included).
     expect(buildPipefailPrefix("posix")).toBe(
-      "set -o pipefail 2>/dev/null; ",
+      "(set -o pipefail) 2>/dev/null && set -o pipefail; ",
     );
     expect(buildPipefailPrefix("fish")).toBe("");
   });
@@ -105,7 +107,9 @@ describe("scrubOutput", () => {
 
   test("leaves ordinary output that merely mentions pipefail untouched", () => {
     // No sentinel echo on the line → not sidemux's launch line → hands off.
-    const lines = ["hint: run set -o pipefail 2>/dev/null; before piping"];
+    const lines = [
+      "hint: run (set -o pipefail) 2>/dev/null && set -o pipefail; before piping",
+    ];
     expect(scrubOutput(lines)).toEqual(lines);
   });
 
@@ -136,7 +140,9 @@ describe("JobManager", () => {
     const manager = new JobManager(client);
     await manager.launch("%1", "cmd | tee log", "posix");
     const sent = vi.mocked(client.sendLiteral).mock.calls[0]?.[1];
-    expect(sent).toMatch(/^set -o pipefail 2>\/dev\/null; cmd \| tee log; /);
+    expect(sent).toMatch(
+      /^\(set -o pipefail\) 2>\/dev\/null && set -o pipefail; cmd \| tee log; /,
+    );
   });
 
   test("launch sends no pipefail prefix for fish", async () => {

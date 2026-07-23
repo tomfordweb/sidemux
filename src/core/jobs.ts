@@ -27,13 +27,20 @@ export function buildSentinelSuffix(
 /**
  * Prefix prepended to the launched command so a failing stage anywhere in a
  * pipeline surfaces as the job's exit code (`cmd | tee log` must not report
- * the tee's 0). fish has no pipefail option, so the prefix is posix-only;
- * shells without it (plain sh/dash) fail the `set` quietly — stderr is
- * discarded and the `;` continues into the real command, keeping the old
- * tail-of-pipe behavior there.
+ * the tee's 0). fish has no pipefail option, so the prefix is posix-only.
+ *
+ * The option is probed in a subshell before being set for real. `set` is a
+ * POSIX *special* builtin, so a shell that rejects `-o pipefail` — dash, as
+ * shipped for /bin/sh on Debian/Ubuntu — treats the failure as fatal and
+ * discards the rest of the command line, taking the real command and its exit
+ * sentinel with it (the job would then hang until its timeout). Failing
+ * inside `( … )` confines that to the subshell: the `&&` simply short-circuits
+ * and such shells keep their old tail-of-pipe behavior.
  */
 export function buildPipefailPrefix(dialect: ShellDialect): string {
-  return dialect === "fish" ? "" : "set -o pipefail 2>/dev/null; ";
+  return dialect === "fish"
+    ? ""
+    : "(set -o pipefail) 2>/dev/null && set -o pipefail; ";
 }
 
 export function sentinelRegex(jobId: string): RegExp {
@@ -97,7 +104,8 @@ const SENTINEL_RESIDUE = /\s*;?\s*printf[^\n]*<<SMUX:[^\n]*$|<<SMUX:[^\n]*$/;
  * the sentinel echo (i.e. sidemux's own launch line), so ordinary output that
  * happens to mention pipefail is never touched.
  */
-const PIPEFAIL_ECHO = /\bset\s+-o\s+pipefail\s+2>\/dev\/null\s*;\s*/g;
+const PIPEFAIL_ECHO =
+  /\(\s*set\s+-o\s+pipefail\s*\)\s*2>\/dev\/null\s*&&\s*set\s+-o\s+pipefail\s*;\s*/g;
 
 /**
  * Clean job output for the agent: drop completed sentinel lines and scrub the
