@@ -2,7 +2,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { SidemuxService } from "./service.js";
 
-const VERSION = "0.1.0";
+// Keep in sync with package.json "version" (release step: bump both).
+const VERSION = "0.1.1";
 
 interface Extra {
   _meta?: { progressToken?: string | number };
