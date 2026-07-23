@@ -19,7 +19,10 @@ jobs:
       # hung rather than failing loudly — the runner's own bash+dash pair is not
       # a wide enough sample to catch that. dash and posh in particular abort
       # the whole line on an unsupported `set -o` (special-builtin semantics).
-      - run: sudo apt-get update && sudo apt-get install -y tmux dash ksh mksh yash posh busybox zsh fish
+      #
+      # tcsh is here for the opposite reason: it is on sidemux's refusal list,
+      # and the matrix asserts it really cannot produce a sentinel.
+      - run: sudo apt-get update && sudo apt-get install -y tmux dash ksh mksh yash posh busybox zsh fish tcsh
 
       - uses: pnpm/action-setup@v4
 

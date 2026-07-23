@@ -3,6 +3,7 @@ import {
   DEFAULT_IDLE_PANE_TTL_MS,
   DEFAULT_LOG_MAX_AGE_MS,
   DEFAULT_LOG_MAX_TOTAL_BYTES,
+  incompatibleShellReason,
   isKnownShell,
   loadConfig,
   shellDialectFromCommand,
@@ -234,5 +235,33 @@ describe("shell detection", () => {
     expect(shellDialectFromCommand("node")).toBeNull();
     expect(isKnownShell("vim")).toBe(false);
     expect(isKnownShell("bash")).toBe(true);
+  });
+
+  test("recognizes the smaller posix shells the matrix test covers", () => {
+    // These all run the launch line correctly, so they should not be treated
+    // as unknown foreground programs (which slows the waiter's idle check).
+    for (const shell of ["mksh", "yash", "posh", "ash", "busybox", "ksh93"]) {
+      expect(shellDialectFromCommand(shell)).toBe("posix");
+    }
+  });
+
+  test("strips the leading dash a login shell prepends", () => {
+    expect(shellDialectFromCommand("-zsh")).toBe("posix");
+    expect(incompatibleShellReason("-tcsh")).toContain("tcsh");
+  });
+});
+
+describe("incompatibleShellReason", () => {
+  test("names a reason for shells that cannot evaluate the sentinel", () => {
+    for (const shell of ["csh", "tcsh", "nu", "nushell", "xonsh", "elvish"]) {
+      expect(incompatibleShellReason(shell)).toEqual(expect.any(String));
+    }
+    expect(incompatibleShellReason("/usr/bin/tcsh")).toContain("$?");
+  });
+
+  test("compatible and merely-unknown commands are not rejected", () => {
+    for (const command of ["bash", "zsh", "fish", "dash", "node", "vim"]) {
+      expect(incompatibleShellReason(command)).toBeNull();
+    }
   });
 });
