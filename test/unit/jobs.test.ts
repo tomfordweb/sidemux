@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 import {
   JobManager,
+  buildPipefailPrefix,
   buildSentinelSuffix,
   makeJobId,
   parseSentinel,
@@ -25,6 +26,15 @@ describe("sentinel", () => {
     expect(buildSentinelSuffix("j1a2b3", "fish")).toBe(
       "; printf '\\n<<SMUX:%s:%d>>\\n' 'j1a2b3' $status",
     );
+  });
+
+  test("posix prefix enables pipefail with a quiet fallback, fish gets none", () => {
+    // Probed in a subshell first: `set` is a special builtin, so in dash the
+    // rejected option would otherwise abort the whole line (command included).
+    expect(buildPipefailPrefix("posix")).toBe(
+      "(set -o pipefail) 2>/dev/null && set -o pipefail; ",
+    );
+    expect(buildPipefailPrefix("fish")).toBe("");
   });
 
   test("MANDATORY: the echoed command line can never match the completion regex", () => {
@@ -90,6 +100,19 @@ describe("scrubOutput", () => {
     expect(scrubOutput([weird])).toEqual(["$ make"]);
   });
 
+  test("scrubs the pipefail prefix from the echoed launch line", () => {
+    const echoed = `$ ${buildPipefailPrefix("posix")}npm test${buildSentinelSuffix("jabc12", "posix")}`;
+    expect(scrubOutput([echoed])).toEqual(["$ npm test"]);
+  });
+
+  test("leaves ordinary output that merely mentions pipefail untouched", () => {
+    // No sentinel echo on the line → not sidemux's launch line → hands off.
+    const lines = [
+      "hint: run (set -o pipefail) 2>/dev/null && set -o pipefail; before piping",
+    ];
+    expect(scrubOutput(lines)).toEqual(lines);
+  });
+
   test("leaves ordinary output containing no marker untouched", () => {
     const lines = ["compiling foo.ts", "PASS 12 tests", "done in 3s"];
     expect(scrubOutput(lines)).toEqual(lines);
@@ -112,6 +135,24 @@ function stubClient(): TmuxClient {
 }
 
 describe("JobManager", () => {
+  test("launch sends the pipefail prefix ahead of the command (posix)", async () => {
+    const client = stubClient();
+    const manager = new JobManager(client);
+    await manager.launch("%1", "cmd | tee log", "posix");
+    const sent = vi.mocked(client.sendLiteral).mock.calls[0]?.[1];
+    expect(sent).toMatch(
+      /^\(set -o pipefail\) 2>\/dev\/null && set -o pipefail; cmd \| tee log; /,
+    );
+  });
+
+  test("launch sends no pipefail prefix for fish", async () => {
+    const client = stubClient();
+    const manager = new JobManager(client);
+    await manager.launch("%1", "cmd | tee log", "fish");
+    const sent = vi.mocked(client.sendLiteral).mock.calls[0]?.[1];
+    expect(sent).toMatch(/^cmd \| tee log; /);
+  });
+
   test("launch registers the job and findByPane returns the latest per pane", async () => {
     const manager = new JobManager(stubClient());
     const first = await manager.launch("%1", "echo one", "posix");

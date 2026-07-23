@@ -1,7 +1,25 @@
+import { spawnSync } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { JobManager } from "../../src/core/jobs.js";
 import { waitFor } from "../../src/core/waiter.js";
 import { TmuxFixture, tmuxAvailable } from "./helpers/tmux-fixture.js";
+
+function shellAvailable(command: string, args: string[]): boolean {
+  try {
+    return spawnSync(command, args, { stdio: "ignore" }).status === 0;
+  } catch {
+    return false;
+  }
+}
+
+function bashAvailable(): boolean {
+  return shellAvailable("bash", ["--version"]);
+}
+
+/** dash has no --version, so probe it by running a trivial command. */
+function dashAvailable(): boolean {
+  return shellAvailable("dash", ["-c", "true"]);
+}
 
 describe.skipIf(!tmuxAvailable())("run → wait against real tmux", () => {
   const fx = new TmuxFixture();
@@ -37,6 +55,53 @@ describe.skipIf(!tmuxAvailable())("run → wait against real tmux", () => {
     expect(result.exitCode).toBe(3);
     expect(job.status).toBe("failed");
   });
+
+  test.skipIf(!bashAvailable())(
+    "piped failing command surfaces the failing stage's exit code (pipefail)",
+    async () => {
+      // pipefail needs a shell that supports it; the fixture's plain sh may
+      // be dash (which keeps tail-of-pipe status), so run this pane in bash.
+      const pane = await fx.client.splitWindow(
+        "/tmp",
+        fx.firstPane,
+        "30%",
+        "bash --norc",
+      );
+      const job = await jobs.launch(pane, 'sh -c "exit 3" | cat', null);
+      const result = await waitFor(fx.client, pane, jobs, job, {
+        until: "exit",
+        timeoutMs: 10_000,
+      });
+      expect(result.status).toBe("exit");
+      expect(result.exitCode).toBe(3);
+      expect(job.status).toBe("failed");
+    },
+  );
+
+  test.skipIf(!dashAvailable())(
+    "a shell that rejects pipefail still runs the command and its sentinel",
+    async () => {
+      // dash rejects `-o pipefail`, and `set` is a special builtin: an
+      // unguarded `set -o pipefail` aborts the whole line there, so the job
+      // never runs and never exits. The prefix probes in a subshell instead.
+      const pane = await fx.client.splitWindow(
+        "/tmp",
+        fx.firstPane,
+        "30%",
+        "dash",
+      );
+      const job = await jobs.launch(pane, 'sh -c "exit 4"', null);
+      const result = await waitFor(fx.client, pane, jobs, job, {
+        until: "exit",
+        timeoutMs: 10_000,
+      });
+      // Reaching the sentinel at all is the point: an aborted line would
+      // leave the job "running" until the timeout.
+      expect(result.status).toBe("exit");
+      expect(result.exitCode).toBe(4);
+      expect(job.status).toBe("failed");
+    },
+  );
 
   test("long command: wait times out re-armably, second wait completes", async () => {
     const job = await jobs.launch(

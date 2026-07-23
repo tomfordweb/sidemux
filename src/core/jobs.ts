@@ -24,6 +24,25 @@ export function buildSentinelSuffix(
   return `; printf '\\n<<SMUX:%s:%d>>\\n' '${jobId}' ${exitVar}`;
 }
 
+/**
+ * Prefix prepended to the launched command so a failing stage anywhere in a
+ * pipeline surfaces as the job's exit code (`cmd | tee log` must not report
+ * the tee's 0). fish has no pipefail option, so the prefix is posix-only.
+ *
+ * The option is probed in a subshell before being set for real. `set` is a
+ * POSIX *special* builtin, so a shell that rejects `-o pipefail` — dash, as
+ * shipped for /bin/sh on Debian/Ubuntu — treats the failure as fatal and
+ * discards the rest of the command line, taking the real command and its exit
+ * sentinel with it (the job would then hang until its timeout). Failing
+ * inside `( … )` confines that to the subshell: the `&&` simply short-circuits
+ * and such shells keep their old tail-of-pipe behavior.
+ */
+export function buildPipefailPrefix(dialect: ShellDialect): string {
+  return dialect === "fish"
+    ? ""
+    : "(set -o pipefail) 2>/dev/null && set -o pipefail; ";
+}
+
 export function sentinelRegex(jobId: string): RegExp {
   return new RegExp(`<<SMUX:${jobId}:(\\d+)>>`);
 }
@@ -80,17 +99,31 @@ const SENTINEL_ECHO =
 const SENTINEL_RESIDUE = /\s*;?\s*printf[^\n]*<<SMUX:[^\n]*$|<<SMUX:[^\n]*$/;
 
 /**
+ * Matches the pipefail prefix as it appears in the *echoed* command line.
+ * Whitespace-tolerant like SENTINEL_ECHO. Only applied to lines that carried
+ * the sentinel echo (i.e. sidemux's own launch line), so ordinary output that
+ * happens to mention pipefail is never touched.
+ */
+const PIPEFAIL_ECHO =
+  /\(\s*set\s+-o\s+pipefail\s*\)\s*2>\/dev\/null\s*&&\s*set\s+-o\s+pipefail\s*;\s*/g;
+
+/**
  * Clean job output for the agent: drop completed sentinel lines and scrub the
- * sentinel suffix out of the echoed command line — both are sidemux plumbing,
- * not command output. Every code path that returns pane text to the agent must
- * pass through here (run/wait/read tails all do).
+ * sentinel suffix + pipefail prefix out of the echoed command line — all
+ * sidemux plumbing, not command output. Every code path that returns pane
+ * text to the agent must pass through here (run/wait/read tails all do).
  */
 export function scrubOutput(lines: string[]): string[] {
   return lines
     .filter((line) => !ANY_SENTINEL.test(line))
-    .map((line) =>
-      line.replace(SENTINEL_ECHO, "").replace(SENTINEL_RESIDUE, ""),
-    );
+    .map((line) => {
+      const scrubbed = line
+        .replace(SENTINEL_ECHO, "")
+        .replace(SENTINEL_RESIDUE, "");
+      // Only sidemux's own echoed launch line (identified by the sentinel
+      // scrub having removed something) gets the pipefail prefix stripped.
+      return scrubbed === line ? line : scrubbed.replace(PIPEFAIL_ECHO, "");
+    });
 }
 
 /** Finished jobs retained for late read/wait lookups before pruning. */
@@ -177,7 +210,7 @@ export class JobManager {
 
     await this.client.sendLiteral(
       paneId,
-      command + buildSentinelSuffix(jobId, dialect),
+      buildPipefailPrefix(dialect) + command + buildSentinelSuffix(jobId, dialect),
     );
     await this.client.sendKeys(paneId, ["Enter"]);
 
