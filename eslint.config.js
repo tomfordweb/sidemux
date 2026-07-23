@@ -3,7 +3,9 @@ import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 
 export default defineConfig(
-  { ignores: ["dist/", "coverage/", ".sidemux/"] },
+  // recording/ holds demo-fixture scripts and the VHS driver — plain .mjs
+  // outside the TS project service, not product code.
+  { ignores: ["dist/", "coverage/", ".sidemux/", "recording/"] },
   js.configs.recommended,
   ...tseslint.configs.strictTypeChecked,
   ...tseslint.configs.stylisticTypeChecked,
