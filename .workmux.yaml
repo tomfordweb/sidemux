@@ -1,0 +1,15 @@
+# workmux project configuration — see `workmux config reference` for all options.
+
+# node_modules is NOT symlinked (would break `.pnpm`) — each worktree installs
+# its own. direnv needs an explicit one-time trust per worktree (a fresh
+# `.envrc` is untrusted by default); pnpm build gives the flake's local-build
+# `sidemux` wrapper (see flake.nix) something to point at immediately instead
+# of erroring until the first manual build.
+post_create:
+  - direnv allow
+  - pnpm install
+  - pnpm build
+
+# Per-user local Claude permission overrides — not shared config, but the
+# same overrides should apply in every worktree's own agent.
+symlink: .claude/settings.local.json
