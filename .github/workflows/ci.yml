@@ -12,7 +12,14 @@ jobs:
       - uses: actions/checkout@v4
 
       # Integration tests are skipIf(!tmuxAvailable()); install tmux so they run.
-      - run: sudo apt-get update && sudo apt-get install -y tmux
+      #
+      # The extra shells feed test/integration/shell-matrix.test.ts, which types
+      # sidemux's launch line into every shell present. Users run sidemux under
+      # whatever shell they have, and a shell that mangles the line leaves jobs
+      # hung rather than failing loudly — the runner's own bash+dash pair is not
+      # a wide enough sample to catch that. dash and posh in particular abort
+      # the whole line on an unsupported `set -o` (special-builtin semantics).
+      - run: sudo apt-get update && sudo apt-get install -y tmux dash ksh mksh yash posh busybox zsh fish
 
       - uses: pnpm/action-setup@v4
 
