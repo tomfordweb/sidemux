@@ -119,14 +119,14 @@ describe("scrubOutput", () => {
   });
 });
 
-function stubClient(): TmuxClient {
+function stubClient(currentCommand = "sh"): TmuxClient {
   return {
     paneState: vi.fn(async () => ({
       historySize: 0,
       historyLimit: 2000,
       cursorY: 0,
       paneHeight: 30,
-      currentCommand: "sh",
+      currentCommand,
       currentPath: "/proj",
     })),
     sendLiteral: vi.fn(async () => undefined),
@@ -151,6 +151,32 @@ describe("JobManager", () => {
     await manager.launch("%1", "cmd | tee log", "fish");
     const sent = vi.mocked(client.sendLiteral).mock.calls[0]?.[1];
     expect(sent).toMatch(/^cmd \| tee log; /);
+  });
+
+  test("launch refuses a pane running a shell that cannot report exit codes", async () => {
+    // tcsh parses `$?` as a variable-existence test, so the sentinel never
+    // prints and the job would hang until its timeout. Failing here is the
+    // whole point — an error the caller can read beats a silent stall.
+    const client = stubClient("tcsh");
+    const manager = new JobManager(client);
+    await expect(manager.launch("%1", "echo hi", null)).rejects.toThrow(/tcsh/);
+    expect(client.sendLiteral).not.toHaveBeenCalled();
+  });
+
+  test("launch refuses even when a dialect is forced", async () => {
+    // SIDEMUX_SHELL only picks `$?` vs `$status`; neither works in csh, so
+    // an explicit dialect must not turn the refusal back into a hang.
+    const manager = new JobManager(stubClient("/bin/csh"));
+    await expect(manager.launch("%1", "echo hi", "posix")).rejects.toThrow(
+      /csh/,
+    );
+  });
+
+  test("launch allows an unrecognized foreground command", async () => {
+    // Unknown is not incompatible: the pane may be running a wrapper, and
+    // posix stays the safe default there.
+    const manager = new JobManager(stubClient("some-wrapper"));
+    await expect(manager.launch("%1", "echo hi", null)).resolves.toBeDefined();
   });
 
   test("launch registers the job and findByPane returns the latest per pane", async () => {

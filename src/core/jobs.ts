@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { mkdir } from "node:fs/promises";
-import { isKnownShell, type ShellDialect } from "../config.js";
+import { incompatibleShellReason, type ShellDialect } from "../config.js";
 import type { TmuxClient } from "../tmux/client.js";
 import type { Job } from "../types.js";
 import { jobLogPath } from "./logs.js";
@@ -185,12 +185,21 @@ export class JobManager {
     forcedDialect: ShellDialect | null,
   ): Promise<Job> {
     const state = await this.client.paneState(paneId);
+    // An unrecognized foreground command is not fatal — it is usually a
+    // wrapper or a program the pane is running — and posix stays the safe
+    // default. A shell that is known to be unable to evaluate the sentinel
+    // is different: typing the line there produces a job that never
+    // completes, so fail now with something the caller can act on.
+    const incompatible = incompatibleShellReason(state.currentCommand);
+    if (incompatible !== null) {
+      throw new Error(
+        `pane ${paneId} is running ${state.currentCommand}, which cannot report a job's exit code: ${incompatible}. ` +
+          `Run the command in a pane using a POSIX shell or fish (set SIDEMUX_PANE_SHELL for panes sidemux creates).`,
+      );
+    }
     const dialect =
       forcedDialect ??
       (state.currentCommand.includes("fish") ? "fish" : "posix");
-    if (!isKnownShell(state.currentCommand)) {
-      // Not fatal — the pane may be a wrapper — but posix is the safe default.
-    }
 
     const jobId = makeJobId();
     const job: Job = {

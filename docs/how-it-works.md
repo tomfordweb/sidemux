@@ -37,6 +37,14 @@ pnpm build; printf '\n<<SMUX:%s:%d>>\n' 'j4f2a1' $?
   No "skip the first occurrence" hacks are needed.
 - Fish uses `$status` instead of `$?`. The dialect is auto-detected from
   `pane_current_command`, or can be forced with `SIDEMUX_SHELL`.
+- csh-family shells (`csh`, `tcsh`) and the newer non-POSIX ones (`nu`,
+  `xonsh`, `elvish`) cannot evaluate the sentinel at all — csh reads `$?` as a
+  variable-existence test. A `run` into such a pane is **refused with an
+  error** rather than typed, because the job would otherwise sit "running"
+  until its timeout, and forever if it were a background job. Run those
+  commands in a POSIX or fish pane instead (`SIDEMUX_PANE_SHELL` picks the
+  shell for panes sidemux creates). An unrecognized foreground command is not
+  refused: it is usually a wrapper, and POSIX is the safe default there.
 - The waiter polls only the last ~15 pane lines per tick. The sentinel always
   appears at the end of output, so scans stay cheap regardless of how much the
   command prints.

@@ -5,7 +5,7 @@ import {
   buildSentinelSuffix,
   parseSentinel,
 } from "../../src/core/jobs.js";
-import type { ShellDialect } from "../../src/config.js";
+import { incompatibleShellReason, type ShellDialect } from "../../src/config.js";
 
 /**
  * The launch line, run through every shell installed on this machine.
@@ -62,7 +62,18 @@ function runs(candidate: Candidate): boolean {
   }
 }
 
+/**
+ * Shells sidemux refuses outright rather than typing into. Listed here to keep
+ * the refusal honest: if one of these ever produces a sentinel, the deny-list
+ * entry is wrong and should go.
+ */
+const INCOMPATIBLE: Candidate[] = [
+  { name: "tcsh", bin: "tcsh", args: ["-c"], dialect: "posix" },
+  { name: "csh", bin: "csh", args: ["-c"], dialect: "posix" },
+];
+
 const AVAILABLE = CANDIDATES.filter(runs);
+const AVAILABLE_INCOMPATIBLE = INCOMPATIBLE.filter(runs);
 
 /** Type the launch line into `shell` exactly as JobManager would. */
 function launch(
@@ -113,12 +124,37 @@ describe("launch line across installed shells", () => {
         expect(sentinel).toBe(0);
       });
 
+      test("the shell is not on the refusal list", () => {
+        expect(incompatibleShellReason(candidate.bin)).toBeNull();
+      });
+
       test("a pipeline reports a sentinel, whether or not pipefail is supported", () => {
         // Shells with pipefail report the failing stage (3); those that reject
         // the option degrade to tail-of-pipe (0). Both are contractual — a
         // missing sentinel is not.
         const { sentinel } = launch(candidate, 'sh -c "exit 3" | cat');
         expect([0, 3]).toContain(sentinel);
+      });
+    },
+  );
+});
+
+describe("shells sidemux refuses", () => {
+  // Unconditional: the deny-list must hold on machines with no csh installed,
+  // which is most of them.
+  test("the refusal list names a reason for each entry", () => {
+    for (const candidate of INCOMPATIBLE) {
+      expect(incompatibleShellReason(candidate.bin)).toEqual(expect.any(String));
+    }
+  });
+
+  describe.each(AVAILABLE_INCOMPATIBLE.map((c) => [c.name, c] as const))(
+    "%s",
+    (_name, candidate) => {
+      test("really cannot produce a sentinel", () => {
+        // If this ever starts returning an exit code, the shell became
+        // usable and its deny-list entry should be deleted, not kept.
+        expect(launch(candidate, "true").sentinel).toBeNull();
       });
     },
   );

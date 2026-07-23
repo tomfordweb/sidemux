@@ -67,7 +67,38 @@ export interface Config {
 }
 
 const FISH_LIKE = new Set(["fish"]);
-const POSIX_LIKE = new Set(["bash", "zsh", "sh", "dash", "ksh"]);
+const POSIX_LIKE = new Set([
+  "bash",
+  "zsh",
+  "sh",
+  "dash",
+  "ksh",
+  "ksh93",
+  "mksh",
+  "yash",
+  "posh",
+  "ash",
+  "busybox",
+]);
+
+/**
+ * Shells that cannot run sidemux's launch line at all, mapped to the reason.
+ *
+ * The line is `<command>; printf '\n<<SMUX:id:%d>>\n' $?`. csh-family shells
+ * parse `$?` as "is this variable set" and reject the pipefail prefix outright
+ * ("Badly placed ()'s"); the newer non-POSIX shells reject the `$?`/quoting
+ * syntax for their own reasons. Either way nothing evaluates and no sentinel
+ * is ever printed, so the job would sit "running" until its timeout — forever
+ * for a background job. Refusing up front turns a silent hang into an error.
+ */
+const INCOMPATIBLE_SHELLS = new Map([
+  ["csh", "csh reads `$?` as a variable-existence test, not an exit status"],
+  ["tcsh", "tcsh reads `$?` as a variable-existence test, not an exit status"],
+  ["nu", "nushell does not support POSIX `$?` exit-status expansion"],
+  ["nushell", "nushell does not support POSIX `$?` exit-status expansion"],
+  ["xonsh", "xonsh does not support POSIX `$?` exit-status expansion"],
+  ["elvish", "elvish does not support POSIX `$?` exit-status expansion"],
+]);
 
 const DASHBOARD_DENSITIES = new Set<DashboardDensity>([
   "compact",
@@ -182,8 +213,13 @@ function parseRetention(
   return fileValue !== undefined ? Math.max(0, fileValue) : fallback;
 }
 
+/** Bare shell name: strips any path, and the `-` a login shell prepends. */
+function shellName(command: string): string {
+  return (command.split("/").pop() ?? command).replace(/^-/, "");
+}
+
 export function shellDialectFromCommand(command: string): ShellDialect | null {
-  const name = command.split("/").pop() ?? command;
+  const name = shellName(command);
   if (FISH_LIKE.has(name)) {
     return "fish";
   }
@@ -195,6 +231,15 @@ export function shellDialectFromCommand(command: string): ShellDialect | null {
 
 export function isKnownShell(command: string): boolean {
   return shellDialectFromCommand(command) !== null;
+}
+
+/**
+ * Why this shell cannot run the launch line, or null if it can (or if it is
+ * simply unrecognized — an unknown foreground command is usually a wrapper or
+ * a running program, and POSIX stays the safe default for those).
+ */
+export function incompatibleShellReason(command: string): string | null {
+  return INCOMPATIBLE_SHELLS.get(shellName(command)) ?? null;
 }
 
 /**
