@@ -1,0 +1,11 @@
+{
+  "name": "acme-web",
+  "private": true,
+  "version": "1.4.2",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node scripts/test.mjs",
+    "test:broken": "node scripts/test.mjs --fail",
+    "dev": "node scripts/dev.mjs"
+  }
+}

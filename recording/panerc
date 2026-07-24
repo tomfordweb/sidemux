@@ -1,0 +1,3 @@
+# Minimal bash rc for panes sidemux creates during recordings — keeps the
+# maintainer's real prompt (starship, nix chips, personal paths) off screen.
+PS1='\W ❯ '
