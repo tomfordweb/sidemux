@@ -321,8 +321,9 @@ export function buildServer(service: SidemuxService): McpServer {
     {
       title: "List tmux panes with job status",
       description:
-        "List tmux panes with sidemux job status. Default scope: panes sidemux created plus " +
-        "the agent's own session. all=true lists every pane on the server.",
+        "List tmux panes with sidemux job status. Default scope: panes THIS agent created " +
+        "plus the agent's own session — other agents' sidemux panes are excluded. " +
+        "all=true lists every pane on the server.",
       inputSchema: {
         all: z.boolean().default(false),
       },
