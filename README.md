@@ -324,6 +324,10 @@ Every variable except `SIDEMUX_AGENT_ID` has a config-file equivalent — see
   enough for the command, or reset its timeout on sidemux progress
   notifications. sidemux emits those notifications for clients that pass a
   progress token.
+- **Multi-hour jobs:** `timeout_ms` on `run` and `wait` accepts up to 24 hours.
+  Launch with `background: true`, then issue one `wait` with a `timeout_ms`
+  covering the whole job — hosts that background long tool calls surface a
+  single completion event, instead of a re-armable timeout every few minutes.
 
 ## Development
 
