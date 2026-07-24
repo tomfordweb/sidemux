@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { incompatibleShellReason, type ShellDialect } from "../config.js";
 import type { TmuxClient } from "../tmux/client.js";
 import type { Job } from "../types.js";
-import { jobLogPath } from "./logs.js";
+import { jobLogPath, stripAnsi } from "./logs.js";
 import { shellQuote, totalLines } from "./shared.js";
 
 export function makeJobId(): string {
@@ -108,13 +108,17 @@ const PIPEFAIL_ECHO =
   /\(\s*set\s+-o\s+pipefail\s*\)\s*2>\/dev\/null\s*&&\s*set\s+-o\s+pipefail\s*;\s*/g;
 
 /**
- * Clean job output for the agent: drop completed sentinel lines and scrub the
- * sentinel suffix + pipefail prefix out of the echoed command line — all
- * sidemux plumbing, not command output. Every code path that returns pane
- * text to the agent must pass through here (run/wait/read tails all do).
+ * Clean job output for the agent: strip any terminal escape sequences that
+ * survived capture (capture-pane omits -e, but the log-file path and odd
+ * sequences like charset designators can leak through — github#18), drop
+ * completed sentinel lines, and scrub the sentinel suffix + pipefail prefix
+ * out of the echoed command line — all sidemux plumbing, not command output.
+ * Every code path that returns pane text to the agent must pass through here
+ * (run/wait/read tails all do).
  */
 export function scrubOutput(lines: string[]): string[] {
   return lines
+    .map(stripAnsi)
     .filter((line) => !ANY_SENTINEL.test(line))
     .map((line) => {
       const scrubbed = line

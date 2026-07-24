@@ -7,6 +7,7 @@ import {
   pruneOldLogs,
   readJobLog,
   sanitizeTerminalOutput,
+  stripAnsi,
 } from "../../src/core/logs.js";
 
 describe("jobLogPath", () => {
@@ -42,6 +43,26 @@ describe("sanitizeTerminalOutput", () => {
       "100% done",
       "next",
     ]);
+  });
+
+  test("strips DCS/APC string sequences and their payload", () => {
+    expect(sanitizeTerminalOutput("\x1bPq#0;2;0;0;0\x1b\\after")).toEqual([
+      "after",
+    ]);
+    expect(sanitizeTerminalOutput("\x1b_Gpayload\x07after")).toEqual(["after"]);
+  });
+
+  test("strips charset designators and keypad-mode toggles", () => {
+    expect(sanitizeTerminalOutput("\x1b(Bplain \x1b=text\x1b>")).toEqual([
+      "plain text",
+    ]);
+  });
+});
+
+describe("stripAnsi", () => {
+  test("removes escapes from a single line, leaving text intact", () => {
+    expect(stripAnsi("\x1b[1;32m✓\x1b[0m ok \x1b]0;t\x07\x1b(B")).toBe("✓ ok ");
+    expect(stripAnsi("no escapes here")).toBe("no escapes here");
   });
 });
 

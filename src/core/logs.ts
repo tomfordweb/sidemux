@@ -27,16 +27,33 @@ export function jobLogPath(logDir: string, jobId: string): string {
   return join(logDir, `${jobId}.log`);
 }
 
-// CSI (colors, cursor movement), OSC (titles, with BEL or ST terminator), and
-// remaining single-char ESC sequences, in that order — OSC must go before the
-// single-char rule or its leading `]` survives. Control chars are the whole
-// point here, hence the eslint exceptions.
+// Escape-sequence families, applied in order: CSI (colors, cursor movement),
+// OSC (titles, with BEL or ST terminator), string sequences carrying a payload
+// (DCS/SOS/PM/APC, also ST-terminated), charset designators + keypad-mode
+// toggles (`\x1b(B`, `\x1b=` — common in prompt/less output), and finally any
+// remaining single-char ESC sequence — the string forms must go first or their
+// leading byte survives. Control chars are the whole point here, hence the
+// eslint exceptions.
 // eslint-disable-next-line no-control-regex
 const ANSI_CSI = /\x1b\[[0-9;?]*[ -/]*[@-~]/g;
 // eslint-disable-next-line no-control-regex
 const ANSI_OSC = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?/g;
 // eslint-disable-next-line no-control-regex
+const ANSI_STRING = /\x1b[PX^_][^\x1b\x07]*(?:\x07|\x1b\\)?/g;
+// eslint-disable-next-line no-control-regex
+const ANSI_CHARSET = /\x1b[()*+/][0-9A-Za-z]|\x1b[=><]/g;
+// eslint-disable-next-line no-control-regex
 const ANSI_OTHER = /\x1b[@-_]/g;
+
+/** Strip terminal escape sequences from a single already-split line. */
+export function stripAnsi(line: string): string {
+  return line
+    .replace(ANSI_CSI, "")
+    .replace(ANSI_OSC, "")
+    .replace(ANSI_STRING, "")
+    .replace(ANSI_CHARSET, "")
+    .replace(ANSI_OTHER, "");
+}
 
 /**
  * Reduce raw terminal output to the text a pane would display: strip escape
@@ -47,6 +64,8 @@ export function sanitizeTerminalOutput(raw: string): string[] {
   const text = raw
     .replace(ANSI_CSI, "")
     .replace(ANSI_OSC, "")
+    .replace(ANSI_STRING, "")
+    .replace(ANSI_CHARSET, "")
     .replace(ANSI_OTHER, "")
     .replace(/\r\n/g, "\n");
   return text.split("\n").map((line) => {
