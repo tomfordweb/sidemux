@@ -23,7 +23,7 @@ const files = [
 let passed = 0;
 for (const [file, tests] of files) {
   const isBroken = fail && file.endsWith("checkout.test.ts");
-  await sleep(450);
+  await sleep(300);
   if (isBroken) {
     console.log(`${red("✗")} ${file} ${dim(`(${tests.length} tests | 1 failed)`)}`);
     for (const t of tests.slice(0, -1)) {

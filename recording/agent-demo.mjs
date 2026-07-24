@@ -77,7 +77,7 @@ async function call(name, args, note) {
 if (journey === "hero") {
   console.log(dim("agent session — every command below runs in a visible tmux pane;"));
   console.log(dim("the agent sees only what is printed here.\n"));
-  await sleep(1200);
+  await sleep(600);
 
   const build = await call("run", {
     command: "pnpm build",
@@ -85,7 +85,7 @@ if (journey === "hero") {
     timeout_ms: 60_000,
   });
   paneLines += 170;
-  await sleep(1500);
+  await sleep(800);
 
   const test = await call("run", {
     command: "pnpm test:broken",
@@ -93,7 +93,7 @@ if (journey === "hero") {
     timeout_ms: 60_000,
   });
   paneLines += 40;
-  await sleep(1200);
+  await sleep(600);
 
   if (test.exit_code !== 0) {
     await call("read", {
@@ -102,7 +102,7 @@ if (journey === "hero") {
       context: 2,
     });
   }
-  await sleep(1500);
+  await sleep(800);
 
   const dev = await call("run", {
     command: "pnpm dev",
@@ -114,7 +114,7 @@ if (journey === "hero") {
     until: "pattern",
     pattern: "Local:.*http",
   });
-  await sleep(8000); // leave the dev server streaming for the second popup peek
+  await sleep(5000); // leave the dev server streaming for the second popup peek
 
   await call("close_all", {});
   console.log(

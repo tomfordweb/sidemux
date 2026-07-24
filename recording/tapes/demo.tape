@@ -25,23 +25,23 @@ Show
 Type `node "$SIDEMUX_REPO/recording/agent-demo.mjs" hero` Sleep 500ms Enter
 
 # pnpm build is now running in a workspace pane. Peek at it live: Prefix+e.
-Sleep 4.5s
+Sleep 3s
 Ctrl+B
 Sleep 300ms
 Type "e"
-Sleep 3.5s
+Sleep 2.5s
 Type "q"
 
 # Back on the agent: build result lands, failing test runs, grep pulls the
 # assertion, dev server starts and wait matches the ready line.
-Sleep 13s
+Sleep 7.5s
 
 # One more peek while the dev server streams in its pane.
 Ctrl+B
 Sleep 300ms
 Type "e"
-Sleep 3s
+Sleep 2.5s
 Type "q"
 
 # close_all + the token summary line.
-Sleep 9s
+Sleep 5.5s

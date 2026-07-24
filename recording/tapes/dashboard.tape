@@ -17,14 +17,14 @@ Type `cd "$DEMO_DIR" && clear` Enter
 Type `tmux -L smux-demo -f "$SIDEMUX_REPO/recording/tmux-demo.conf" new-session -s demo` Enter
 Sleep 1s
 Type `node "$SIDEMUX_REPO/recording/agent-demo.mjs" seed && clear` Enter
-Sleep 16s
+Sleep 11s
 Show
 
 Type `SIDEMUX_TMUX_SOCKET=smux-demo node "$SIDEMUX_REPO/dist/index.js" dashboard` Sleep 500ms Enter
-Sleep 3s
-Down Sleep 1.2s
-Down Sleep 1.2s
-Up Sleep 1.5s
-Sleep 3s
+Sleep 2.5s
+Down Sleep 800ms
+Down Sleep 800ms
+Up Sleep 1s
+Sleep 2s
 Type "q"
-Sleep 1.5s
+Sleep 1.2s

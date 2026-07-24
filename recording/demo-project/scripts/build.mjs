@@ -15,7 +15,7 @@ console.log(`${bold(cyan("vite"))} v6.0.3 ${green("building for production...")}
 await sleep(300);
 for (let i = 0; i < modules.length; i += 1) {
   process.stdout.write(`transforming (${i + 1}) ${dim(modules[i])}\n`);
-  await sleep(25);
+  await sleep(15);
 }
 console.log(green(`✓ ${modules.length} modules transformed.`));
 await sleep(400);
