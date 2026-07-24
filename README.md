@@ -60,8 +60,6 @@ real MCP stdio — and reports the estimated tokens an agent ingests each way:
 sidemux benchmark --command "pnpm test" --command "pnpm build"
 ```
 
-![sidemux benchmark run ending on the savings table](assets/usage/benchmark.gif)
-
 For long-running builds or Playwright suites, increase the per-command timeout:
 
 ```bash

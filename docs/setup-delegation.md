@@ -7,8 +7,6 @@ dev-server commands and redirects the agent to the sidemux `run` tool instead
 — so heavy output stays in a tmux pane and out of the agent's context, on
 every run, without the agent having to remember.
 
-![sidemux init wiring a project, then the guard blocking an inline pnpm test](../assets/usage/init.gif)
-
 ## Run it
 
 In the project you want to wire up:

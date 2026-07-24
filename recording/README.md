@@ -10,7 +10,7 @@ screen is mocked except the demo project's command output.
 ```bash
 pnpm build                       # the tapes run dist/index.js
 recording/record.sh              # all tapes
-recording/record.sh demo init    # just those two
+recording/record.sh demo         # just one
 ```
 
 Outputs: `assets/demo.gif` + `assets/demo.mp4` (hero) and
@@ -25,8 +25,8 @@ Requires: `vhs`, `tmux ≥ 3.2`, `node ≥ 18`, `pnpm`, and a
 - Every tape runs on an **isolated tmux socket** (`-L smux-demo`) with the
   recording-only `tmux-demo.conf` — your real tmux server and config are never
   touched or shown.
-- `record.sh` points `XDG_CONFIG_HOME` at a scratch dir, so `sidemux init`
-  tapes never read or prompt about your real `~/.config/sidemux`.
+- `record.sh` points `XDG_CONFIG_HOME` at a scratch dir, so nothing reads
+  your real `~/.config/sidemux`.
 - The on-screen project is the synthetic `demo-project/` fixture (`acme-web`):
   its build/test/dev scripts print realistic vite/vitest-style output with no
   personal data. A fresh copy is seeded per tape so journeys don't bleed.
@@ -41,8 +41,6 @@ Requires: `vhs`, `tmux ≥ 3.2`, `node ≥ 18`, `pnpm`, and a
 | `agent-demo.mjs`  | Scripted MCP client — the "agent" whose tool calls you watch.    |
 | `tapes/demo.tape` | Hero: build → failing test → grep → dev server, with two Prefix+e dashboard-popup peeks. |
 | `tapes/dashboard.tape` | The standalone `sidemux dashboard` TUI over a seeded workspace. |
-| `tapes/benchmark.tape` | `sidemux benchmark` ending on the savings table.            |
-| `tapes/init.tape` | `sidemux init` + the PreToolUse guard blocking an inline run.    |
 | `tmux-demo.conf`  | Recording-only tmux theme (pill status line, no external deps).  |
 | `demo-project/`   | Synthetic `acme-web` fixture with chatty build/test/dev scripts. |
 | `panerc`          | Minimal bash rc for panes created during recordings.             |
