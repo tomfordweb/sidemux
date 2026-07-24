@@ -544,7 +544,15 @@ export class SidemuxService {
       if (all) {
         return true;
       }
-      if (this.allocator.isManaged(pane.paneId) || pane.managed) {
+      // Sidemux panes owned by ANOTHER agent (a different working session,
+      // usually a different cwd) are not this agent's work — surfacing them by
+      // default lets an agent misattribute someone else's jobs as its own
+      // (github#20). They still show in the agent's own session, and always
+      // with all=true.
+      if (
+        this.allocator.isManaged(pane.paneId) ||
+        (pane.managed && pane.agentId === this.config.agentId)
+      ) {
         return true;
       }
       return (
