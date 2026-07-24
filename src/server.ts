@@ -81,7 +81,10 @@ export function buildServer(service: SidemuxService): McpServer {
         "next, do NOT poll with read. The returned tail is usually all you need on success; " +
         "only read more on failure. Use background=true for dev servers and watchers. The " +
         "job's complete output is also teed to log_file (raw terminal bytes), which you can " +
-        "grep/tail directly — useful for long jobs and output beyond the pane's scrollback.",
+        "grep/tail directly — useful for long jobs and output beyond the pane's scrollback. " +
+        "The log starts with the echoed command line, so never grep it for a completion " +
+        "sentinel your own command prints (it matches the echo instantly); anchor on the " +
+        'job\'s exit marker "<<SMUX:<job_id>:<digits>>" instead, which only prints on exit.',
       inputSchema: {
         command: z.string().describe("Shell command to run"),
         description: z
@@ -142,7 +145,9 @@ export function buildServer(service: SidemuxService): McpServer {
           .string()
           .nullable()
           .describe(
-            "File holding the job's complete output (survives pane scrollback limits)",
+            "File holding the job's complete output (survives pane scrollback limits). " +
+              "Includes the echoed command line — detect completion via the " +
+              '"<<SMUX:<job_id>:<digits>>" exit marker, not strings from your command.',
           ),
       },
     },
