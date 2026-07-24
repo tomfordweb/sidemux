@@ -5,6 +5,14 @@ import type { SidemuxService } from "./service.js";
 // Keep in sync with package.json "version" (release step: bump both).
 const VERSION = "0.1.1";
 
+/**
+ * Ceiling for run/wait blocking, 24h. Long waits are cheap server-side (no
+ * model turns burn while blocked), and a single long wait is the fix for
+ * timeout-notification churn on multi-hour jobs (github#4, github#19): the MCP
+ * host may background the call, and its completion is the one wake-up.
+ */
+const MAX_TIMEOUT_MS = 86_400_000;
+
 interface Extra {
   _meta?: { progressToken?: string | number };
   sendNotification: (notification: {
@@ -111,7 +119,17 @@ export function buildServer(service: SidemuxService): McpServer {
             "Monorepo package to target (pnpm-workspace/nx): runs in that package's " +
               "directory with a pane named after it. Errors listing valid names if unknown.",
           ),
-        timeout_ms: z.number().int().positive().max(600_000).default(60_000),
+        timeout_ms: z
+          .number()
+          .int()
+          .positive()
+          .max(MAX_TIMEOUT_MS)
+          .default(60_000)
+          .describe(
+            "How long to block for the command (ms), up to 24h. For jobs beyond " +
+              "your MCP client's tool timeout, prefer background: true plus a " +
+              "single long wait.",
+          ),
         background: z
           .boolean()
           .default(false)
@@ -171,7 +189,9 @@ export function buildServer(service: SidemuxService): McpServer {
         "Block until a job exits, output matches a regex, or the pane goes idle. One call " +
         'replaces polling — sidemux polls tmux locally. On timeout you get status="timeout" ' +
         'and can simply call wait again (the job keeps its state). Use until="pattern" for ' +
-        'server-ready lines, until="idle" before answering interactive prompts.',
+        'server-ready lines, until="idle" before answering interactive prompts. For ' +
+        "multi-hour jobs pass a large timeout_ms (up to 24h) instead of re-waiting on " +
+        "the default — one call, one completion event.",
       inputSchema: {
         job_id: z.string().optional().describe("Job id returned by run"),
         pane: paneField,
@@ -188,7 +208,17 @@ export function buildServer(service: SidemuxService): McpServer {
           .describe(
             "Quiet time that counts as idle (3x for non-shell foreground commands)",
           ),
-        timeout_ms: z.number().int().positive().max(600_000).default(120_000),
+        timeout_ms: z
+          .number()
+          .int()
+          .positive()
+          .max(MAX_TIMEOUT_MS)
+          .default(120_000)
+          .describe(
+            "How long to block (ms), up to 24h. For a multi-hour job pass the " +
+              "full expected duration: one long wait yields exactly one " +
+              "completion event, even if your MCP client backgrounds the call.",
+          ),
       },
       outputSchema: {
         status: z.enum(["exit", "pattern", "idle", "timeout"]),
