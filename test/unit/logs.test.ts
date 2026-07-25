@@ -6,6 +6,7 @@ import {
   jobLogPath,
   pruneOldLogs,
   readJobLog,
+  readLogTail,
   sanitizeTerminalOutput,
   stripAnsi,
 } from "../../src/core/logs.js";
@@ -13,6 +14,29 @@ import {
 describe("jobLogPath", () => {
   test("names the file after the job id inside the log dir", () => {
     expect(jobLogPath("/state/logs", "jabc123")).toBe("/state/logs/jabc123.log");
+  });
+});
+
+describe("readLogTail", () => {
+  test("returns the whole file when smaller than maxBytes", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "smux-tail-"));
+    const file = join(dir, "j1.log");
+    await writeFile(file, "small file");
+    expect(await readLogTail(file, 1024)).toBe("small file");
+  });
+
+  test("returns only the last maxBytes of a large file", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "smux-tail-"));
+    const file = join(dir, "j2.log");
+    await writeFile(file, `${"x".repeat(10_000)}<<SMUX:jabc123:0>>`);
+    const tail = await readLogTail(file, 100);
+    expect(tail).toHaveLength(100);
+    expect(tail).toContain("<<SMUX:jabc123:0>>");
+  });
+
+  test("throws on a missing file (caller handles best-effort)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "smux-tail-"));
+    await expect(readLogTail(join(dir, "nope.log"), 100)).rejects.toThrow();
   });
 });
 

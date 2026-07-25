@@ -494,7 +494,11 @@ export class SidemuxService {
 
     // A read may be the first thing to observe a finished job.
     if (job?.status === "running") {
-      const scanned = this.jobs.applyScan(job, rawLines);
+      let scanned = this.jobs.applyScan(job, rawLines);
+      if (scanned.status === "running") {
+        // Pane may have lost the sentinel (screen cleared on exit — github#28).
+        scanned = await this.jobs.applyLogScan(scanned);
+      }
       if (
         scanned.status !== "running" &&
         (await this.allocator.hasManagedPane(paneId))
@@ -601,7 +605,11 @@ export class SidemuxService {
   private async refreshRunningJob(job: Job): Promise<Job> {
     try {
       const lines = await this.client.capturePane(job.paneId, -100);
-      const scanned = this.jobs.applyScan(job, lines);
+      let scanned = this.jobs.applyScan(job, lines);
+      if (scanned.status === "running") {
+        // Pane may have lost the sentinel (screen cleared on exit — github#28).
+        scanned = await this.jobs.applyLogScan(scanned);
+      }
       if (
         scanned.status !== "running" &&
         (await this.allocator.hasManagedPane(job.paneId))

@@ -48,6 +48,12 @@ pnpm build; printf '\n<<SMUX:%s:%d>>\n' 'j4f2a1' $?
 - The waiter polls only the last ~15 pane lines per tick. The sentinel always
   appears at the end of output, so scans stay cheap regardless of how much the
   command prints.
+- A command that clears the screen or resets the terminal on exit (nx's
+  dynamic output, TUIs) can wipe the sentinel line from the pane before any
+  scan sees it. When the pane scan comes up empty, the waiter falls back to
+  scanning the tail of the job's log file — `pipe-pane` tapped the raw pty
+  stream, so the sentinel is always there even when the pane no longer shows
+  it (github#28).
 
 Two limits are known and deliberate for v1:
 
