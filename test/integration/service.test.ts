@@ -422,6 +422,39 @@ describe.skipIf(!tmuxAvailable())(
       expect(second.pane).toBe(first.pane);
     });
 
+    test("default list_panes scope excludes another agent's sidemux panes (issue #20)", async () => {
+      // A second agent (different owner id, not inside our session) creates a
+      // pane: it must not leak into this agent's default scope, but stays
+      // reachable with all=true.
+      const foreign = new SidemuxService(
+        fx.client,
+        loadConfig({
+          SIDEMUX_PANE_SHELL: "sh",
+          SIDEMUX_AGENT_ID: "foreign-agent",
+          SIDEMUX_LOG_DIR: LOG_DIR,
+        }),
+        {},
+        "/tmp",
+      );
+      const theirs = await foreign.run({
+        command: "echo foreign-ok",
+        name: "foreign-pane",
+        timeout_ms: 10_000,
+        background: false,
+      });
+      try {
+        const scoped = await service.listPanes(false);
+        expect(scoped.find((p) => p.pane === theirs.pane)).toBeUndefined();
+        const everything = await service.listPanes(true);
+        expect(everything.find((p) => p.pane === theirs.pane)).toBeDefined();
+        // The foreign agent still sees its own pane by default.
+        const theirView = await foreign.listPanes(false);
+        expect(theirView.find((p) => p.pane === theirs.pane)).toBeDefined();
+      } finally {
+        await foreign.closeAll();
+      }
+    });
+
     test("idle-pane TTL trims expired panes after a run, keeping the just-used one", async () => {
       // TTL 0 = every idle pane is already expired; only keepPaneId (the pane
       // that just ran) survives each post-run trim. Failed panes are collected
