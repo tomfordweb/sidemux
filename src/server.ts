@@ -194,7 +194,11 @@ export function buildServer(service: SidemuxService): McpServer {
         "Block until a job exits, output matches a regex, or the pane goes idle. One call " +
         'replaces polling — sidemux polls tmux locally. On timeout you get status="timeout" ' +
         'and can simply call wait again (the job keeps its state). Use until="pattern" for ' +
-        'server-ready lines, until="idle" before answering interactive prompts. For ' +
+        'server-ready lines, until="idle" before answering interactive prompts. Pattern ' +
+        "matching scans the job's WHOLE output by default, so a line printed before this " +
+        'call can match; pass since="now" to match only output produced after the call ' +
+        "(e.g. re-waiting on a long job whose earlier output already contains your " +
+        "failure pattern). For " +
         "multi-hour jobs pass a large timeout_ms (up to 24h) instead of re-waiting on " +
         "the default — one call, one completion event.",
       inputSchema: {
@@ -205,6 +209,15 @@ export function buildServer(service: SidemuxService): McpServer {
           .string()
           .optional()
           .describe('Regex to watch for (required when until="pattern")'),
+        since: z
+          .enum(["job", "now"])
+          .default("job")
+          .describe(
+            'Pattern scan scope. "job": everything since the job started (or the ' +
+              'visible screen without a job) — a line printed before this call can match. ' +
+              '"now": only output produced after this call starts, so stale lines from ' +
+              "earlier in a long job can't re-match.",
+          ),
         idle_ms: z
           .number()
           .int()

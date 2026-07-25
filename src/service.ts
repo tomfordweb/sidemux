@@ -7,7 +7,12 @@ import { shapeOutput, type ShapedOutput } from "./core/output.js";
 import { PaneAllocator } from "./core/panes.js";
 import { clampCaptureStart, shellQuote } from "./core/shared.js";
 import { StatsTracker } from "./core/stats.js";
-import { waitFor, type WaitResult, type WaitUntil } from "./core/waiter.js";
+import {
+  waitFor,
+  type WaitResult,
+  type WaitSince,
+  type WaitUntil,
+} from "./core/waiter.js";
 import { listProjects, resolveProject } from "./core/workspace.js";
 import type { TmuxClient } from "./tmux/client.js";
 import type { Job, JobStatus } from "./types.js";
@@ -53,6 +58,8 @@ export interface WaitArgs {
   pane?: string | undefined;
   until: WaitUntil;
   pattern?: string | undefined;
+  /** Pattern scan scope: whole job region (default) or new output only. */
+  since?: WaitSince | undefined;
   idle_ms: number;
   timeout_ms: number;
 }
@@ -421,6 +428,7 @@ export class SidemuxService {
     const result = await waitFor(this.client, paneId, this.jobs, job, {
       until: args.until,
       pattern: args.pattern,
+      since: args.since,
       idleMs: args.idle_ms,
       timeoutMs: args.timeout_ms,
       onProgress,
