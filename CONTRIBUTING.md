@@ -1,13 +1,12 @@
 # Contributing to sidemux
 
-Thanks for your interest in improving sidemux. This document covers everything
-you need to get a change from idea to merged PR.
+This covers what you need to get a change from idea to merged PR.
 
 ## Prerequisites
 
 - **Node ≥ 18** (per `engines` in `package.json`; CI runs Node 22)
 - **pnpm** (the repo uses a `pnpm-lock.yaml` / pnpm workspace)
-- **tmux ≥ 3.2** — integration tests drive a real tmux server and the
+- **tmux ≥ 3.2**. Integration tests drive a real tmux server, and the
   dashboard uses `display-popup`. Tests that need tmux are skipped when it is
   not installed, but a full local run requires it. Integration tests never
   touch your real tmux server: they run on isolated `-L smux-test-*` sockets
@@ -32,7 +31,7 @@ pnpm build       # tsup → dist/
 
 ## Code standards
 
-- **Strict TypeScript.** The project compiles with strict settings; don't
+- **Strict TypeScript.** The project compiles with strict settings. Don't
   weaken types or reach for `any` to silence errors.
 - **Type-checked linting.** `pnpm lint` runs eslint with type-aware
   typescript-eslint rules; it must pass clean.
@@ -48,7 +47,7 @@ pnpm build       # tsup → dist/
 3. Use **Conventional Commits** for commit messages and the PR title
    (`feat: …`, `fix: …`, `docs: …`, `test: …`, `chore: …`).
 4. Open a PR against `main`. CI ([.github/workflows/ci.yml](.github/workflows/ci.yml))
-   runs lint, typecheck, tests (with tmux installed), and the build — it must
+   runs lint, typecheck, tests (with tmux installed), and the build. It must
    be green before merge.
 5. Update documentation (`README.md`, `docs/`) when your change affects
    user-visible behavior or configuration.
@@ -58,9 +57,9 @@ pnpm build       # tsup → dist/
 Releases are tag-driven:
 
 1. Bump `version` in `package.json` on `main`.
-2. Tag it: `git tag v<version> && git push --tags` — the tag must match
-   `v*.*.*` and the `package.json` version exactly (the workflow verifies
-   this).
+2. Tag it with `git tag v<version> && git push --tags`. The tag must match
+   `v*.*.*` and the `package.json` version exactly, which the workflow
+   verifies.
 3. [.github/workflows/publish.yml](.github/workflows/publish.yml) runs the
    test suite (via `prepublishOnly`) and publishes to npm with `--provenance`.
 

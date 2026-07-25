@@ -51,8 +51,8 @@ Optional configuration is passed through the `environment` key:
 ## Notes
 
 - sidemux runs commands in the `smux` workspace session. Runs are grouped
-  by `name`/`project` into tmux windows; with no attached client, the workspace
-  is detached — attach with `tmux attach -t smux` to watch, or press `Prefix e`
+  by `name`/`project` into tmux windows; with no attached client the workspace
+  is detached. Attach with `tmux attach -t smux` to watch, or press `Prefix e`
   from any tmux session for the dashboard popup (tmux ≥ 3.2).
 - Personal settings that should apply to every project (session name,
   dashboard key/density, TTLs, …) belong in the global config file

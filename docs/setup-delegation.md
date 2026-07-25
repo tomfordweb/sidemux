@@ -3,9 +3,9 @@
 By default, sidemux only runs a command in a pane when the agent chooses to
 call the `run` tool. `sidemux init` makes that automatic for a project: it
 wires up a guard that intercepts inline `pnpm test` / `npm run build` /
-dev-server commands and redirects the agent to the sidemux `run` tool instead
-— so heavy output stays in a tmux pane and out of the agent's context, on
-every run, without the agent having to remember.
+dev-server commands and redirects the agent to the sidemux `run` tool instead.
+Heavy output stays in a tmux pane and out of the agent's context on every run,
+without the agent having to remember.
 
 ## Run it
 
@@ -22,7 +22,7 @@ Non-interactive / CI:
 ```bash
 sidemux init --yes                              # delegate every detected command
 sidemux init --commands "pnpm test,pnpm build"  # delegate exactly these
-sidemux init --commands "pytest,composer test"  # any language — commands are just strings
+sidemux init --commands "pytest,composer test"  # any language: commands are just strings
 sidemux init --yes --mcp                         # also register the MCP server
 ```
 
@@ -53,7 +53,8 @@ Clients without hook enforcement (Codex, OpenCode) still rely on instructions.
 Add the custom command to the managed block in `AGENTS.md` / `CLAUDE.md`, or
 re-run `sidemux init --commands ...` so sidemux writes that block for you.
 
-`init` detects candidates from, grouped as test / lint / build / dev:
+`init` detects candidates from the following, grouped as test / lint / build /
+dev:
 
 - `package.json` scripts (mapped to your package manager via the lockfile)
 - `composer.json` scripts (PHP) → `composer test`, `composer lint`, …
@@ -63,15 +64,15 @@ re-run `sidemux init --commands ...` so sidemux writes that block for you.
 - `Cargo.toml` → `cargo test`, `cargo clippy`, `cargo build`
 - `Makefile` and `justfile` targets → `make test`, `just test`, …
 - `.sidemux.toml` `[scripts]` entries (see
-  [configuration.md](./configuration.md)) — project-named sidemux scripts are
+  [configuration.md](./configuration.md)). Project-named sidemux scripts are
   offered as delegation candidates too
 
 When run interactively, `init` also offers to scaffold the global config file
 `~/.config/sidemux/config.toml` if it doesn't exist yet.
 
 **Nothing detected?** Init still offers to install a _generic_ directive block
-that tells the agent to route heavy commands — test suites, linters, type
-checkers, builds, E2E runs, dev servers — through sidemux by theme. The guard
+that tells the agent to route heavy commands through sidemux by theme: test
+suites, linters, type checkers, builds, E2E runs and dev servers. The guard
 has nothing to block until you add commands (`--commands`, or `sidemux init
 --sync` once the project grows recognizable ones).
 
@@ -86,7 +87,7 @@ has nothing to block until you add commands (`--commands`, or `sidemux init
 | `.mcp.json`                   | _(with `--mcp`)_ the sidemux MCP server entry                 |
 
 All writes are idempotent and marker-delimited: re-running updates them in
-place, and `sidemux uninstall` removes exactly what was added — nothing more.
+place, and `sidemux uninstall` removes exactly what was added and nothing more.
 
 ## Refreshing after a sidemux upgrade (or new scripts)
 
@@ -120,8 +121,8 @@ blocks in `CLAUDE.md` / `AGENTS.md`, and the `sidemux` entry in `.mcp.json`
 
 The guard is registered as a Claude Code **PreToolUse** hook on the `Bash`
 tool. When the agent tries to run a delegated command inline, the guard exits
-with status **2** — Claude Code's convention for "block this tool call and
-feed the message back to the model" — along with an actionable note:
+with status **2**, Claude Code's convention for "block this tool call and feed
+the message back to the model", along with an actionable note:
 
 ```
 [sidemux] Delegate "pnpm test" to a tmux pane instead of running it inline.
@@ -152,4 +153,4 @@ echo '{"tool_name":"Bash","tool_input":{"command":"ls"}}' \
 ```
 
 Then, in a Claude Code session in that project, ask Claude to run the test
-suite — it should route through the sidemux `run` tool instead of Bash.
+suite. It should route through the sidemux `run` tool instead of Bash.

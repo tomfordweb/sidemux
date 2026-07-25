@@ -2,10 +2,10 @@
 
 ## What sidemux can do
 
-`run` and `send_keys` inject keystrokes into live terminals. That is the
-feature — and the risk. A terminal is an execution surface: anything typed
-into a shell pane runs with your user's privileges. sidemux is designed around
-that reality, with layered guards rather than wishful thinking.
+`run` and `send_keys` inject keystrokes into live terminals. That is both the
+feature and the risk. A terminal is an execution surface: anything typed into a
+shell pane runs with your user's privileges. sidemux is built around that, with
+layered guards.
 
 ## Threat model
 
@@ -33,18 +33,17 @@ examples:
    (see [configuration.md](./configuration.md)).
 4. **`kill-pane` / `close_all` scope.** Destroying panes only works on
    sidemux-created panes, regardless of mode. `close_all` is the same story in
-   bulk — it only ever destroys panes marked as sidemux-managed, so the
-   agent's own pane and the user's shells are untouched. Foreign panes
-   can only be sent Ctrl-C — and only when the managed-only guard allows writes
-   at all.
+   bulk: it only ever destroys panes marked as sidemux-managed, so the agent's
+   own pane and the user's shells are untouched. Foreign panes can only be sent
+   Ctrl-C, and only when the managed-only guard allows writes at all.
 
-## The primary control is your MCP client
+## Your MCP client is the outer boundary
 
-Tool-level permission gates — Claude Code's approval prompts, Codex
-approvals — are the real boundary. sidemux keeps that boundary easy to
-enforce: its write tools are exactly four (`run`, `send_keys`, `kill`,
-`close_all`), so scoping approval rules is simple. `read`, `list_panes`, and
-`wait` are read-only and safe to auto-approve.
+Tool-level permission gates, such as Claude Code's approval prompts and Codex
+approvals, are where policy actually gets enforced. sidemux keeps that easy to
+scope: its write tools are exactly four (`run`, `send_keys`, `kill`,
+`close_all`). `read`, `list_panes`, and `wait` are read-only and safe to
+auto-approve.
 
 ## Recommendations
 
@@ -53,5 +52,5 @@ enforce: its write tools are exactly four (`run`, `send_keys`, `kill`,
   the global config file).
 - Don't auto-approve `send_keys` if you keep sensitive interactive sessions
   (ssh, database consoles) in the same tmux server.
-- Remember that pane content returned by `read` enters the agent's context —
+- Remember that pane content returned by `read` enters the agent's context, so
   don't point it at panes displaying secrets.
