@@ -41,9 +41,9 @@ examples:
 
 Tool-level permission gates, such as Claude Code's approval prompts and Codex
 approvals, are where policy actually gets enforced. sidemux keeps that easy to
-scope: its write tools are exactly four (`run`, `send_keys`, `kill`,
-`close_all`). `read`, `list_panes`, and `wait` are read-only and safe to
-auto-approve.
+scope. Of its eight tools, exactly four write: `run`, `send_keys`, `kill` and
+`close_all`. The other four (`read`, `wait`, `list_panes` and `status`) only
+observe, and are safe to auto-approve.
 
 ## Recommendations
 

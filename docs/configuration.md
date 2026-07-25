@@ -38,7 +38,7 @@ Every key, its environment-variable equivalent, and its default:
 | `pane_header`           | bool    | `SIDEMUX_PANE_HEADER` (`0` = off)     | `true`            | Show a `command · %id` header on sidemux panes (tmux pane border)                                     |
 | `close_on_success`      | bool    | `SIDEMUX_CLOSE_ON_SUCCESS` (`1` = on) | `false`           | Auto-close a pane after its foreground command exits `0` (failed panes stay up)                       |
 | `idle_pane_ttl_ms`      | int ≥ 0 | `SIDEMUX_IDLE_PANE_TTL_MS`            | `900000` (15 min) | How long an idle finished one-shot pane survives before garbage collection                            |
-| `max_output_bytes`      | int > 0 | `SIDEMUX_MAX_OUTPUT_BYTES`            | `8192`            | Hard cap on bytes returned by a single `read`                                                         |
+| `max_output_bytes`      | int > 0 | `SIDEMUX_MAX_OUTPUT_BYTES`            | `8192`            | Base cap on read sizes; a single `read` may return up to 8× this, bounded by its own `max_bytes`      |
 | `log_dir`               | string  | `SIDEMUX_LOG_DIR`                     | XDG state dir     | Directory for per-job full-output logs; `"off"` disables job logging entirely                         |
 | `log_max_age_ms`        | int ≥ 0 | `SIDEMUX_LOG_MAX_AGE_MS`              | `604800000` (7 d) | How long a job log survives before pruning; `0` = never prune by age                                  |
 | `log_max_total_bytes`   | int ≥ 0 | `SIDEMUX_LOG_MAX_TOTAL_BYTES`         | `268435456` (256 MiB) | Disk budget for the log directory, oldest logs evicted first; `0` = no size cap                   |

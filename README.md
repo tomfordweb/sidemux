@@ -164,8 +164,9 @@ idleness instead. The full design is described in
 ## Requirements
 
 - **tmux ≥ 3.2** on your `PATH`. sidemux drives real tmux panes, and without
-  tmux every tool returns `tmux is not installed or not on PATH`. The built-in
-  dashboard popup uses `display-popup`, introduced in tmux 3.2.
+  tmux every tool fails with an error starting `tmux is not installed or not
+  on PATH`. The built-in dashboard popup uses `display-popup`, introduced in
+  tmux 3.2.
 - **Node ≥ 18**. The server targets node18 and uses the modern `node:` APIs.
 
 ## Watching the output

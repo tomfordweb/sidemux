@@ -247,7 +247,8 @@ export function globalConfigTemplate(): string {
 # (SIDEMUX_IDLE_PANE_TTL_MS; default 15 minutes)
 #idle_pane_ttl_ms = 900000
 
-# Hard cap on bytes returned by a single read (SIDEMUX_MAX_OUTPUT_BYTES)
+# Base cap on read sizes (SIDEMUX_MAX_OUTPUT_BYTES). A single read may return
+# up to 8x this, bounded by the read's own max_bytes argument.
 #max_output_bytes = 8192
 
 # Where per-job full-output logs are written (SIDEMUX_LOG_DIR).
