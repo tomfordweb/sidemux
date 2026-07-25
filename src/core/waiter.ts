@@ -7,10 +7,22 @@ import { clampCaptureStart, totalLines } from "./shared.js";
 
 export type WaitUntil = "exit" | "pattern" | "idle";
 
+/** Where pattern scans begin: the job's start, or the wait call itself. */
+export type WaitSince = "job" | "now";
+
 export interface WaitOptions {
   until: WaitUntil;
   /** Regex source, required when until = 'pattern'. */
   pattern?: string | undefined;
+  /**
+   * Scan scope for until = 'pattern'. Default 'job' scans everything since the
+   * job started (or the visible screen without a job) — right for the common
+   * run-then-wait flow where the wanted line may already have printed. 'now'
+   * matches only output produced after this wait starts, so a re-wait on a
+   * long-running job cannot instantly re-match a stale line from earlier
+   * output (github#27).
+   */
+  since?: WaitSince | undefined;
   /** Stability window for until = 'idle'. */
   idleMs?: number | undefined;
   timeoutMs?: number | undefined;
@@ -49,7 +61,13 @@ export async function waitFor(
   job: Job | null,
   options: WaitOptions,
 ): Promise<WaitResult> {
-  const { until, idleMs = 2000, timeoutMs = 120_000, onProgress } = options;
+  const {
+    until,
+    idleMs = 2000,
+    timeoutMs = 120_000,
+    since = "job",
+    onProgress,
+  } = options;
   const regex =
     options.pattern !== undefined ? new RegExp(options.pattern) : null;
   if (until === "pattern" && !regex) {
@@ -66,7 +84,9 @@ export async function waitFor(
   let pollMs = POLL_INITIAL_MS;
   let lastProgressAt = startedAt;
 
-  // pattern scans start where the job started, or where the wait started.
+  // pattern scans start where the job started (since='job'), or at the pane's
+  // line count when the wait began (since='now'). Fixed on the first poll so
+  // the window never slides as output accumulates.
   let patternScanFrom: number | null = null;
 
   let idleHash = "";
@@ -109,9 +129,16 @@ export async function waitFor(
         };
       }
     } else if (until === "pattern") {
-      patternScanFrom ??= job
-        ? job.baselineLines
-        : currentTotal - state.paneHeight;
+      // 'now' includes the current cursor row (currentTotal counts it): the
+      // next output lands there, not on the row below. The row's stale
+      // content is at worst a blank/partial prompt line, never a completed
+      // output line from earlier in the job.
+      patternScanFrom ??=
+        since === "now"
+          ? currentTotal - 1
+          : job
+            ? job.baselineLines
+            : currentTotal - state.paneHeight;
       const scanStart = clampCaptureStart(
         state,
         patternScanFrom - state.historySize,

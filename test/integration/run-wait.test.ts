@@ -141,6 +141,58 @@ describe.skipIf(!tmuxAvailable())("run → wait against real tmux", () => {
     await fx.client.sendKeys(fx.firstPane, ["C-c"]);
   });
 
+  test("pattern since='now' ignores output printed before the wait (github#27)", async () => {
+    // The job prints a failure-looking line immediately, then a second one
+    // later. A default wait would re-match the first line instantly on every
+    // call; since='now' must wait for the one printed after the call starts.
+    const job = await jobs.launch(
+      fx.firstPane,
+      'sh -c "echo FAILED early; sleep 1; echo FAILED late; sleep 5"',
+      null,
+    );
+    // Let the early line land first.
+    await waitFor(fx.client, fx.firstPane, jobs, job, {
+      until: "pattern",
+      pattern: "FAILED early",
+      timeoutMs: 10_000,
+    });
+
+    const started = Date.now();
+    const result = await waitFor(fx.client, fx.firstPane, jobs, job, {
+      until: "pattern",
+      pattern: "FAILED",
+      since: "now",
+      timeoutMs: 10_000,
+    });
+    expect(result.status).toBe("pattern");
+    expect(result.matchedLine).toContain("FAILED late");
+    // An instant return would mean the stale line matched.
+    expect(Date.now() - started).toBeGreaterThan(200);
+    await fx.client.sendKeys(fx.firstPane, ["C-c"]);
+  });
+
+  test("pattern since='now' still times out when only stale output matches", async () => {
+    const job = await jobs.launch(
+      fx.firstPane,
+      'sh -c "echo STALE MATCH; sleep 5"',
+      null,
+    );
+    await waitFor(fx.client, fx.firstPane, jobs, job, {
+      until: "pattern",
+      pattern: "STALE MATCH",
+      timeoutMs: 10_000,
+    });
+
+    const result = await waitFor(fx.client, fx.firstPane, jobs, job, {
+      until: "pattern",
+      pattern: "STALE MATCH",
+      since: "now",
+      timeoutMs: 800,
+    });
+    expect(result.status).toBe("timeout");
+    await fx.client.sendKeys(fx.firstPane, ["C-c"]);
+  });
+
   test("wait until idle detects the shell sitting at a prompt", async () => {
     const job = await jobs.launch(fx.firstPane, "echo idle-me", null);
     const result = await waitFor(fx.client, fx.firstPane, jobs, job, {
