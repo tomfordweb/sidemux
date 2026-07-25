@@ -1,10 +1,10 @@
 # sidemux + Claude Code
 
 There are two ways to install sidemux in Claude Code: as a plain MCP server,
-or as the bundled plugin, which ships the MCP server together with a
+or as the bundled plugin, which carries the MCP server together with a
 `tmux-delegate` skill that teaches Claude the delegation workflow.
 
-## Option A — MCP server only
+## Option A: MCP server only
 
 From a local checkout (pre-publish):
 
@@ -22,9 +22,9 @@ claude mcp add sidemux -- npx -y sidemux
 To enable sidemux in every project, add `--scope user`; running the command
 inside a project registers it for that project only.
 
-## Option B — Plugin (server + skill)
+## Option B: plugin (server + skill)
 
-The plugin ships the MCP server config plus a skill that triggers whenever
+The plugin carries the MCP server config plus a skill that triggers whenever
 Claude is about to run something long-running ("run the build", "start the dev
 server") and steers it into the run → wait → read-on-failure loop.
 
@@ -37,13 +37,13 @@ claude plugin install sidemux@sidemux
 
 Pre-publish note: the bundled `.mcp.json` invokes `npx -y sidemux`, which only
 resolves once the package is on npm. Until then, run `npm link` once in the
-sidemux repo so that `npx sidemux` resolves to your local build — or use
-Option A.
+sidemux repo so that `npx sidemux` resolves to your local build.
+Otherwise use Option A.
 
 ## Auto-delegate a project's test/lint/build
 
 To make Claude route a project's `pnpm test` / build / dev commands through
-sidemux automatically — instead of relying on the skill each time — run
+sidemux automatically, instead of relying on the skill each time, run
 `sidemux init` in that project. It installs a PreToolUse guard hook plus a
 CLAUDE.md directive. After upgrading sidemux (or adding scripts), `sidemux
 init --sync` refreshes the generated files, keeps your selection, and asks
@@ -55,8 +55,8 @@ about any newly detected commands. `sidemux uninstall` reverts it all. See
 Claude Code's per-tool-call timeout (`MCP_TOOL_TIMEOUT`, plus `MCP_TIMEOUT`
 for server startup) must exceed your longest `wait`. The defaults are usually
 fine, because sidemux's own `timeout_ms` (default 120s for `wait`) returns a
-re-armable `status: "timeout"` result first — Claude then simply calls `wait`
-again. For a single long `run` call, raise the timeout enough for the command
+re-armable `status: "timeout"` result first, and Claude then simply calls
+`wait` again. For a single long `run` call, raise the timeout enough for the command
 or use `background: true` plus `wait`. For very long builds you can raise it:
 
 ```bash
@@ -70,7 +70,7 @@ Inside a tmux session, ask Claude:
 > run `sleep 5 && echo hello from sidemux` in a pane
 
 You should see the command run in the `smux` workspace session, and Claude
-report exit 0 with a short tail — with no polling turns in between. Watch the
+report exit 0 with a short tail, with no polling turns in between. Watch the
 output by attaching (`tmux attach -t smux`) or pressing `Prefix e` for the
 dashboard popup.
 
@@ -78,5 +78,5 @@ dashboard popup.
 
 Instead of repeating env vars in every project's MCP entry, put personal
 settings (session name, dashboard key/density, TTLs, …) in the global config
-file `~/.config/sidemux/config.toml` — env vars still win when set. See
+file `~/.config/sidemux/config.toml`. Env vars still win when set. See
 [configuration.md](./configuration.md).

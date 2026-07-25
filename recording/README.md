@@ -1,9 +1,9 @@
 # Demo recordings
 
-Reproducible pipeline that renders the README demo GIFs/MP4 with
-[VHS](https://github.com/charmbracelet/vhs), driving the **real** sidemux
-server through a scripted MCP stdio client (`agent-demo.mjs`) — nothing on
-screen is mocked except the demo project's command output.
+These scripts render the README demo GIFs and MP4 with
+[VHS](https://github.com/charmbracelet/vhs). They drive the sidemux server
+itself through a scripted MCP stdio client (`agent-demo.mjs`), so the only
+thing faked on screen is the demo project's command output.
 
 ## Render
 
@@ -23,8 +23,8 @@ Requires: `vhs`, `tmux ≥ 3.2`, `node ≥ 18`, `pnpm`, and a
 ## Hermetic where it matters
 
 - Every tape runs on an **isolated tmux socket** (`-L smux-demo`) with the
-  recording-only `tmux-demo.conf` — your real tmux server and config are never
-  touched or shown.
+  recording-only `tmux-demo.conf`, so your real tmux server and config are
+  never touched or shown.
 - `record.sh` points `XDG_CONFIG_HOME` at a scratch dir, so nothing reads
   your real `~/.config/sidemux`.
 - The on-screen project is the synthetic `demo-project/` fixture (`acme-web`):
@@ -38,7 +38,7 @@ Requires: `vhs`, `tmux ≥ 3.2`, `node ≥ 18`, `pnpm`, and a
 | File              | Role                                                             |
 | ----------------- | ---------------------------------------------------------------- |
 | `record.sh`       | Seed fixture + scratch XDG home, run each tape, emit the GIFs.   |
-| `agent-demo.mjs`  | Scripted MCP client — the "agent" whose tool calls you watch.    |
+| `agent-demo.mjs`  | Scripted MCP client: the "agent" whose tool calls you watch.     |
 | `tapes/demo.tape` | Hero: build → failing test → grep → dev server, with two Prefix+e dashboard-popup peeks. |
 | `tapes/dashboard.tape` | The standalone `sidemux dashboard` TUI over a seeded workspace. |
 | `tmux-demo.conf`  | Recording-only tmux theme (pill status line, no external deps).  |

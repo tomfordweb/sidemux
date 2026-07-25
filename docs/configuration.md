@@ -10,14 +10,14 @@ built-in defaults  <  global config file  <  environment variables
 
 Environment variables stay authoritative so existing per-project MCP `env`
 blocks keep working unchanged. A malformed config file warns to stderr and is
-ignored — it is never fatal. Unknown keys in the global file warn and are
+ignored. It is never fatal. Unknown keys in the global file warn and are
 ignored individually.
 
 There are **two files with two distinct concerns**:
 
 | File                            | Scope             | Holds                                                               |
 | ------------------------------- | ----------------- | ------------------------------------------------------------------- |
-| `~/.config/sidemux/config.toml` | Global (per user) | Personal settings — session name, dashboard key/density, TTLs, caps |
+| `~/.config/sidemux/config.toml` | Global (per user) | Personal settings: session name, dashboard key/density, TTLs, caps  |
 | `./.sidemux.toml`               | Per project       | **Named scripts only** (a `[scripts]` table); no settings live here |
 
 ## Global file: `~/.config/sidemux/config.toml`
@@ -38,7 +38,7 @@ Every key, its environment-variable equivalent, and its default:
 | `pane_header`           | bool    | `SIDEMUX_PANE_HEADER` (`0` = off)     | `true`            | Show a `command · %id` header on sidemux panes (tmux pane border)                                     |
 | `close_on_success`      | bool    | `SIDEMUX_CLOSE_ON_SUCCESS` (`1` = on) | `false`           | Auto-close a pane after its foreground command exits `0` (failed panes stay up)                       |
 | `idle_pane_ttl_ms`      | int ≥ 0 | `SIDEMUX_IDLE_PANE_TTL_MS`            | `900000` (15 min) | How long an idle finished one-shot pane survives before garbage collection                            |
-| `max_output_bytes`      | int > 0 | `SIDEMUX_MAX_OUTPUT_BYTES`            | `8192`            | Hard cap on bytes returned by a single `read`                                                         |
+| `max_output_bytes`      | int > 0 | `SIDEMUX_MAX_OUTPUT_BYTES`            | `8192`            | Base cap on read sizes; a single `read` may return up to 8× this, bounded by its own `max_bytes`      |
 | `log_dir`               | string  | `SIDEMUX_LOG_DIR`                     | XDG state dir     | Directory for per-job full-output logs; `"off"` disables job logging entirely                         |
 | `log_max_age_ms`        | int ≥ 0 | `SIDEMUX_LOG_MAX_AGE_MS`              | `604800000` (7 d) | How long a job log survives before pruning; `0` = never prune by age                                  |
 | `log_max_total_bytes`   | int ≥ 0 | `SIDEMUX_LOG_MAX_TOTAL_BYTES`         | `268435456` (256 MiB) | Disk budget for the log directory, oldest logs evicted first; `0` = no size cap                   |
@@ -71,18 +71,18 @@ project reclaims the panes the previous process created.
 
 Found by walking **up** from the MCP server's working directory (like
 `.mcp.json` discovery), so it works from any subdirectory of the project. It
-holds exactly one thing — a `[scripts]` table of named commands. No settings
+holds exactly one thing: a `[scripts]` table of named commands. No settings
 belong here.
 
 Two value forms:
 
 ```toml
 [scripts]
-# 1. Plain string — a foreground one-shot command
+# 1. Plain string: a foreground one-shot command
 lint = "nx run *:lint"
 test = "pnpm test"
 
-# 2. Table — when you need the background flag (dev servers, watchers)
+# 2. Table: when you need the background flag (dev servers, watchers)
 dev = { command = "pnpm dev", background = true }
 ```
 
@@ -91,9 +91,9 @@ How scripts behave:
 - **Resolution.** `run { command: "lint" }` first checks the scripts table; a
   match runs the script's command instead of treating `lint` as raw shell.
   Non-matching commands pass through unchanged.
-- **Glob passthrough.** Commands are opaque strings handed to the shell — a
+- **Glob passthrough.** Commands are opaque strings handed to the shell. The
   `*` in `nx run *:lint` is passed through untouched for the tool (here Nx) to
-  expand; sidemux does no globbing of its own.
+  expand, and sidemux does no globbing of its own.
 - **Pane naming.** A resolved script names its pane after the script
   (`lint`, `dev`, …), so reruns of the script land back in the same pane via
   named-pane affinity, and the pane header shows a recognizable label.
@@ -102,8 +102,8 @@ How scripts behave:
   garbage-collected) and is meant to be watched with `wait`/`read` and ended
   with `kill`.
 - **`sidemux init` integration.** Script entries are offered as delegation
-  candidates alongside `package.json` scripts, Makefile targets, etc. — see
-  [setup-delegation.md](./setup-delegation.md).
+  candidates alongside `package.json` scripts, Makefile targets and the rest.
+  See [setup-delegation.md](./setup-delegation.md).
 
 A missing or malformed `.sidemux.toml` simply means no scripts.
 
