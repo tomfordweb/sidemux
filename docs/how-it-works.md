@@ -115,6 +115,14 @@ and the echo-scrub logic all stay exactly as they were.
   escapes first.
 - `run` and `read` return the `log_file` path so the agent (or you) can
   `tail -f` / `grep` it without another capture.
+- **The file starts with the echoed command line** — the launch line sidemux
+  typed into the pane, including your command text and the sentinel suffix.
+  Never detect completion by grepping the log for a string that appears in
+  the command itself (`...; echo "DONE"` matches its own echo at 0%
+  progress). Anchor on the job's exit marker instead: `<<SMUX:<job_id>:N>>`
+  with a **digit** exit code only ever prints when the job finishes — the
+  echoed line can't match, because its printf format holds literal `%d`
+  where the digits go.
 - Retention is bounded two ways, both piggybacking on tool calls like the
   rest of GC: logs older than `SIDEMUX_LOG_MAX_AGE_MS` (default 7 days) are
   pruned, and the directory is kept under `SIDEMUX_LOG_MAX_TOTAL_BYTES`

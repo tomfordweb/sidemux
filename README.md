@@ -318,6 +318,11 @@ Every variable except `SIDEMUX_AGENT_ID` has a config-file equivalent — see
   layouts keep script, cwd basename, and ids visible.
 - **Ctrl-C has no exit code.** Interrupting aborts the shell's entire command
   list, sentinel included, so interrupted jobs receive a synthetic `130`.
+- **`log_file` starts with the echoed command line.** Grepping the log for a
+  completion string your own command prints (`...; echo "DONE"`) matches the
+  echo immediately, at 0% progress. Anchor completion detection on the job's
+  exit marker `<<SMUX:<job_id>:<digits>>` — it only ever prints when the job
+  exits, because the echoed line carries literal `%d` where the digits go.
 - **Long waits vs. client timeouts:** `wait` returns `status: "timeout"`
   before most client tool timeouts fire, and the agent simply calls `wait`
   again. For a single long `run` call, the MCP client must allow a request long

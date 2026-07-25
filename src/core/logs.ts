@@ -20,6 +20,14 @@ import { sentinelRegex } from "./jobs.js";
  * overwrites (progress bars), OSC title escapes. Agents tailing the file cope
  * fine with that; when sidemux itself serves output from the file (read
  * since="job" after history overflow), it sanitizes first.
+ *
+ * The file also begins with the ECHOED COMMAND LINE (pipe-pane opens before
+ * the command is typed, so the log is complete from the echo onward). That
+ * makes "grep the log for a sentinel my command prints" a false-positive trap
+ * (github#17): the sentinel is present in the echo before the job has done any
+ * work. Completion detection must anchor on the job's exit marker
+ * `<<SMUX:<job_id>:<digits>>` — the echo can never match it, because the
+ * echoed printf format holds literal %d where the digits go.
  */
 
 /** Log file path for a job id. */
