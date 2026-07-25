@@ -117,6 +117,19 @@ describe("scrubOutput", () => {
     const lines = ["compiling foo.ts", "PASS 12 tests", "done in 3s"];
     expect(scrubOutput(lines)).toEqual(lines);
   });
+
+  test("strips terminal escape sequences from agent-facing lines (issue #18)", () => {
+    const lines = [
+      "\x1b[32m✓\x1b[0m all tests passed",
+      "\x1b]0;window title\x07real output",
+      "\x1b(Bcharset noise\x1b=",
+    ];
+    expect(scrubOutput(lines)).toEqual([
+      "✓ all tests passed",
+      "real output",
+      "charset noise",
+    ]);
+  });
 });
 
 function stubClient(currentCommand = "sh"): TmuxClient {
