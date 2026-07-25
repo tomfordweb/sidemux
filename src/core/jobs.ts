@@ -3,7 +3,12 @@ import { mkdir } from "node:fs/promises";
 import { incompatibleShellReason, type ShellDialect } from "../config.js";
 import type { TmuxClient } from "../tmux/client.js";
 import type { Job } from "../types.js";
-import { jobLogPath, stripAnsi } from "./logs.js";
+import {
+  jobLogPath,
+  readLogTail,
+  sanitizeTerminalOutput,
+  stripAnsi,
+} from "./logs.js";
 import { shellQuote, totalLines } from "./shared.js";
 
 export function makeJobId(): string {
@@ -132,6 +137,14 @@ export function scrubOutput(lines: string[]): string[] {
 
 /** Finished jobs retained for late read/wait lookups before pruning. */
 const MAX_FINISHED_JOBS = 100;
+
+/**
+ * How much of a job's log tail to scan for the exit sentinel. The sentinel
+ * prints at exit, so it sits within the last few lines of the stream — but a
+ * fancy prompt drawn after it can be kilobytes of escape sequences, so leave
+ * generous room.
+ */
+const LOG_SENTINEL_SCAN_BYTES = 64 * 1024;
 
 export class JobManager {
   private readonly jobs = new Map<string, Job>();
@@ -282,6 +295,32 @@ export class JobManager {
       this.stopLog(job);
     }
     return job;
+  }
+
+  /**
+   * Fallback completion check against the job's log file, for when the pane
+   * capture no longer holds the sentinel: a command that clears the screen or
+   * resets the terminal on exit (nx's dynamic output, TUIs) wipes the sentinel
+   * line from the pane, leaving the job "running" forever even though the
+   * prompt is back (github#28). pipe-pane tapped the raw pty stream, so the
+   * log always carries the sentinel regardless of what the pane displays.
+   * Safe against the echoed launch line: the echo holds literal %d where the
+   * digits go, and parseSentinel requires digits (github#17). Best-effort —
+   * a missing/unreadable log leaves the job as-is for the next scan.
+   */
+  async applyLogScan(job: Job): Promise<Job> {
+    if (job.status !== "running" || job.logFile === null) {
+      return job;
+    }
+    let lines: string[];
+    try {
+      lines = sanitizeTerminalOutput(
+        await readLogTail(job.logFile, LOG_SENTINEL_SCAN_BYTES),
+      );
+    } catch {
+      return job;
+    }
+    return this.applyScan(job, lines);
   }
 
   /** Update job state from freshly captured pane lines. */

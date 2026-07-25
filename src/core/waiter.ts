@@ -100,6 +100,11 @@ export async function waitFor(
         throw new Error("wait: until = 'exit' requires a job");
       }
       jobs.applyScan(exitJob, tail);
+      if (exitJob.status === "running") {
+        // The pane tail may no longer hold the sentinel (screen cleared or
+        // terminal reset on exit — github#28); the log file still does.
+        await jobs.applyLogScan(exitJob);
+      }
       if (exitJob.status !== "running") {
         return {
           status: "exit",

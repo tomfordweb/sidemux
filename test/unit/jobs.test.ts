@@ -344,6 +344,47 @@ describe("JobManager per-job log files", () => {
     expect(stub.pipePaneStop).toHaveBeenCalledWith("%1");
   });
 
+  test("applyLogScan settles a job whose sentinel survives only in the log (github#28)", async () => {
+    const { writeFile } = await import("node:fs/promises");
+    const stub = stubClientWithPipes();
+    const manager = new JobManager(stub.client, await tempLogDir());
+    const job = await manager.launch("%1", "pnpm nx run app:test", "posix");
+    // The pane was cleared on exit, so pane scans keep missing the sentinel —
+    // but the pipe-pane log holds the raw stream, escapes and all.
+    await writeFile(
+      job.logFile ?? "",
+      `test output\r\n\x1b[2J\x1b[H\r\n<<SMUX:${job.jobId}:0>>\r\nprompt$ `,
+    );
+    await manager.applyLogScan(job);
+    expect(job.status).toBe("done");
+    expect(job.exitCode).toBe(0);
+    expect(stub.pipePaneStop).toHaveBeenCalledWith("%1");
+  });
+
+  test("applyLogScan does not settle on the echoed launch line alone", async () => {
+    const { writeFile } = await import("node:fs/promises");
+    const stub = stubClientWithPipes();
+    const manager = new JobManager(stub.client, await tempLogDir());
+    const job = await manager.launch("%1", "sleep 99", "posix");
+    // The log opens with the echo (github#17): literal %d, no digits — the
+    // job must stay running until a real sentinel lands.
+    await writeFile(
+      job.logFile ?? "",
+      `$ sleep 99; printf '\\n<<SMUX:%s:%d>>\\n' '${job.jobId}' $?\r\n`,
+    );
+    await manager.applyLogScan(job);
+    expect(job.status).toBe("running");
+  });
+
+  test("applyLogScan tolerates a missing log file", async () => {
+    // pipe-pane is stubbed, so the log file was never actually created.
+    const stub = stubClientWithPipes();
+    const manager = new JobManager(stub.client, await tempLogDir());
+    const job = await manager.launch("%1", "echo hi", "posix");
+    await manager.applyLogScan(job);
+    expect(job.status).toBe("running");
+  });
+
   test("the pipe is left alone when a newer job re-piped the pane", async () => {
     const stub = stubClientWithPipes();
     const manager = new JobManager(stub.client, await tempLogDir());

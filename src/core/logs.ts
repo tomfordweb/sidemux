@@ -1,4 +1,4 @@
-import { readdir, readFile, stat, unlink } from "node:fs/promises";
+import { open, readdir, readFile, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import {
   DEFAULT_LOG_MAX_AGE_MS,
@@ -97,6 +97,28 @@ export async function readJobLog(
   const regex = sentinelRegex(jobId);
   const sentinelAt = lines.findIndex((line) => regex.test(line));
   return sentinelAt === -1 ? lines : lines.slice(0, sentinelAt + 1);
+}
+
+/**
+ * Read the last `maxBytes` of a log file as raw text. Used for sentinel
+ * scanning on large logs where reading the whole file every poll would be
+ * wasteful; the sentinel is always within the final bytes of a finished job's
+ * stream (it prints at exit, followed at most by a prompt).
+ */
+export async function readLogTail(
+  logFile: string,
+  maxBytes: number,
+): Promise<string> {
+  const handle = await open(logFile, "r");
+  try {
+    const { size } = await handle.stat();
+    const start = Math.max(0, size - maxBytes);
+    const buffer = Buffer.alloc(size - start);
+    await handle.read(buffer, 0, buffer.length, start);
+    return buffer.toString("utf8");
+  } finally {
+    await handle.close();
+  }
 }
 
 /** Retention limits for the log directory; 0 disables that limit. */
