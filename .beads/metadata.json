@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "sidemux",
+  "project_id": "06fd016d-7e34-4041-b34c-b559d279f71b"
+}
