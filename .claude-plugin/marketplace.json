@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "sidemux",
-  "description": "Delegate commands to tmux sidecar panes — token-efficient run/wait/read for AI coding agents.",
+  "description": "Delegate token-heavy commands to live tmux panes: an efficient run/wait/read loop for AI coding agents.",
   "owner": {
     "name": "Tom Ford",
     "email": "me@tomfordweb.net"
@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "sidemux",
-      "description": "Delegate long-running commands to tmux panes: blocking waits, incremental reads, exit-code detection.",
+      "description": "Delegate token-heavy commands to live tmux panes: an efficient run/wait/read loop for AI coding agents.",
       "source": "./",
       "category": "productivity"
     }
