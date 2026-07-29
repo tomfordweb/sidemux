@@ -138,6 +138,7 @@ function stubClient(currentCommand = "sh"): TmuxClient {
       historySize: 0,
       historyLimit: 2000,
       cursorY: 0,
+      cursorX: 8,
       paneHeight: 30,
       currentCommand,
       currentPath: "/proj",
@@ -164,6 +165,30 @@ describe("JobManager", () => {
     await manager.launch("%1", "cmd | tee log", "fish");
     const sent = vi.mocked(client.sendLiteral).mock.calls[0]?.[1];
     expect(sent).toMatch(/^cmd \| tee log; /);
+  });
+
+  test("launch waits for a fresh pane's first prompt before typing", async () => {
+    // A pane created moments ago reports a fully blank screen until the
+    // shell prints its prompt; typing early makes the late prompt glue to
+    // the job's first output line (github flake sidemux-pbg).
+    const blank = {
+      historySize: 0,
+      historyLimit: 2000,
+      cursorY: 0,
+      cursorX: 0,
+      paneHeight: 30,
+      currentCommand: "sh",
+      currentPath: "/proj",
+    };
+    const ready = { ...blank, cursorX: 8 };
+    const states = [blank, blank, ready];
+    const client = stubClient();
+    vi.mocked(client.paneState).mockImplementation(
+      async () => states.shift() ?? ready,
+    );
+    await new JobManager(client).launch("%1", "echo hi", "posix");
+    expect(client.paneState).toHaveBeenCalledTimes(3);
+    expect(client.sendLiteral).toHaveBeenCalledOnce();
   });
 
   test("launch refuses a pane running a shell that cannot report exit codes", async () => {
@@ -274,6 +299,7 @@ describe("JobManager per-job log files", () => {
         historySize: 0,
         historyLimit: 2000,
         cursorY: 0,
+        cursorX: 8,
         paneHeight: 30,
         currentCommand: "sh",
         currentPath: "/proj",
