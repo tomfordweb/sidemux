@@ -48,6 +48,7 @@
     "coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
+    "bundle:push": "BUILD_BUNDLE_STATS=1 tsup && bin/dendrobundle-push.sh dist/metafile-esm.json",
     "bench": "node dist/index.js benchmark --command \"pnpm test\" --command \"pnpm typecheck\" --command \"pnpm build\"",
     "pack:dry-run": "npm pack --dry-run",
     "prepublishOnly": "npm run lint && npm run typecheck && npm run test && npm run build"

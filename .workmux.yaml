@@ -11,5 +11,9 @@ post_create:
   - pnpm build
 
 # Per-user local Claude permission overrides — not shared config, but the
-# same overrides should apply in every worktree's own agent.
-symlink: .claude/settings.local.json
+# same overrides should apply in every worktree's own agent. .env carries the
+# local DendroBundle token (untracked; loaded by direnv's dotenv_if_exists),
+# so every worktree's `pnpm bundle:push` can upload without its own copy.
+symlink:
+  - .claude/settings.local.json
+  - .env
