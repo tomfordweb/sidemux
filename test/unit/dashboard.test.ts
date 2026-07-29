@@ -845,6 +845,26 @@ describe("preview tail clipping", () => {
   });
 });
 
+describe("wide-character rendering", () => {
+  test("CJK preview wraps by terminal columns, not by chars", () => {
+    const state = initialDashboardState(rows);
+    const preview = "日".repeat(200);
+    const plain = stripAnsi(renderDashboard(state, preview, 120, 20));
+    for (const line of plain.split("\n")) {
+      const cjk = (line.match(/日/g) ?? []).length;
+      const columns = line.length + cjk; // each 日 renders 2 columns wide
+      expect(columns).toBeLessThanOrEqual(120);
+    }
+  });
+
+  test("emoji preview never grows the frame past the requested height", () => {
+    const state = initialDashboardState(rows);
+    const preview = "🎉".repeat(300);
+    const output = renderDashboard(state, preview, 100, 18);
+    expect(output.split("\n").length).toBeLessThanOrEqual(18);
+  });
+});
+
 describe("runDashboard auto-refresh", () => {
   afterEach(() => {
     vi.useRealTimers();

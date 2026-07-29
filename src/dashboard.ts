@@ -73,6 +73,12 @@ const ANSI = {
   clear: "\x1b[2J\x1b[H",
   hideCursor: "\x1b[?25l",
   showCursor: "\x1b[?25h",
+  altScreen: "\x1b[?1049h",
+  mainScreen: "\x1b[?1049l",
+  wrapOff: "\x1b[?7l",
+  wrapOn: "\x1b[?7h",
+  syncStart: "\x1b[?2026h",
+  syncEnd: "\x1b[?2026l",
   reset: "\x1b[0m",
   reverse: "\x1b[7m",
   dim: "\x1b[2m",
@@ -324,7 +330,9 @@ export async function runDashboard(
     input.setRawMode(false);
     input.pause();
     process.off("SIGWINCH", redraw);
-    output.write(`${ANSI.showCursor}${ANSI.reset}`);
+    output.write(
+      `${ANSI.wrapOn}${ANSI.showCursor}${ANSI.reset}${ANSI.mainScreen}`,
+    );
   };
 
   const openSelected = async (): Promise<void> => {
@@ -420,7 +428,10 @@ export async function runDashboard(
     }
   };
 
-  output.write(ANSI.hideCursor);
+  // Alt screen keeps the shell's scrollback intact; autowrap stays off for
+  // the whole session so an overwide line clips instead of wrapping — a
+  // wrapped line grows the exact-height frame and scrolls the top bar away.
+  output.write(ANSI.altScreen + ANSI.hideCursor + ANSI.wrapOff);
   input.setRawMode(true);
   input.resume();
   input.on(
@@ -549,12 +560,16 @@ function render(
 ): void {
   const width = output.columns || 100;
   const height = output.rows || 30;
+  // Synchronized-output brackets stop the terminal from painting the blank
+  // frame between clear and redraw (terminals without ?2026 ignore them).
   output.write(
-    ANSI.clear +
+    ANSI.syncStart +
+      ANSI.clear +
       renderDashboard(state, preview, width, height, {
         density: config.dashboardDensity,
         stats,
-      }),
+      }) +
+      ANSI.syncEnd,
   );
 }
 
@@ -1234,19 +1249,34 @@ function truncate(value: string, width: number): string {
     return value;
   }
   if (width <= 1) {
-    return value.slice(0, width);
+    return sliceColumns(stripAnsi(value), width);
   }
-  return `${truncatePlain(stripAnsi(value), width - 1)}…`;
+  return `${sliceColumns(stripAnsi(value), width - 1)}…`;
 }
 
 function truncatePlain(value: string, width: number): string {
-  if (value.length <= width) {
+  if (visibleWidth(value) <= width) {
     return value;
   }
   if (width <= 1) {
-    return value.slice(0, width);
+    return sliceColumns(value, width);
   }
-  return `${value.slice(0, width - 1)}…`;
+  return `${sliceColumns(value, width - 1)}…`;
+}
+
+/** Longest prefix that fits in `width` terminal columns. */
+function sliceColumns(value: string, width: number): string {
+  let out = "";
+  let used = 0;
+  for (const char of value) {
+    const columns = charWidth(char.codePointAt(0) ?? 0);
+    if (used + columns > width) {
+      break;
+    }
+    out += char;
+    used += columns;
+  }
+  return out;
 }
 
 function pad(value: string, width: number): string {
@@ -1262,10 +1292,15 @@ function padLeft(value: string, width: number): string {
 function wrapLines(value: string, width: number): string[] {
   const lines: string[] = [];
   for (const rawLine of value.split("\n")) {
-    let line = rawLine;
-    while (stripAnsi(line).length > width) {
-      lines.push(line.slice(0, width));
-      line = line.slice(width);
+    // Pane captures are plain text; stripping up front means a wrap point
+    // can never land inside an escape sequence.
+    let line = stripAnsi(rawLine);
+    while (visibleWidth(line) > width) {
+      // A double-width char that doesn't fit yields an empty slice; force
+      // one char through so the loop always consumes input.
+      const head = sliceColumns(line, width) || line.slice(0, 1);
+      lines.push(head);
+      line = line.slice(head.length);
     }
     lines.push(line);
   }
@@ -1277,5 +1312,44 @@ function stripAnsi(value: string): string {
 }
 
 function visibleWidth(value: string): number {
-  return stripAnsi(value).length;
+  let width = 0;
+  for (const char of stripAnsi(value)) {
+    width += charWidth(char.codePointAt(0) ?? 0);
+  }
+  return width;
+}
+
+/**
+ * Terminal columns for one code point — simplified wcwidth. Combining marks,
+ * joiners, and variation selectors are 0; East Asian Wide/Fullwidth ranges
+ * and emoji are 2; everything else (incl. Nerd Font private-use glyphs) is 1.
+ */
+function charWidth(codePoint: number): number {
+  if (
+    codePoint === 0x200b ||
+    codePoint === 0x200d ||
+    (codePoint >= 0x0300 && codePoint <= 0x036f) ||
+    (codePoint >= 0xfe00 && codePoint <= 0xfe0f)
+  ) {
+    return 0;
+  }
+  if (
+    (codePoint >= 0x1100 && codePoint <= 0x115f) ||
+    (codePoint >= 0x2e80 && codePoint <= 0x303e) ||
+    (codePoint >= 0x3041 && codePoint <= 0x33ff) ||
+    (codePoint >= 0x3400 && codePoint <= 0x4dbf) ||
+    (codePoint >= 0x4e00 && codePoint <= 0x9fff) ||
+    (codePoint >= 0xa000 && codePoint <= 0xa4cf) ||
+    (codePoint >= 0xac00 && codePoint <= 0xd7a3) ||
+    (codePoint >= 0xf900 && codePoint <= 0xfaff) ||
+    (codePoint >= 0xfe10 && codePoint <= 0xfe19) ||
+    (codePoint >= 0xfe30 && codePoint <= 0xfe6f) ||
+    (codePoint >= 0xff00 && codePoint <= 0xff60) ||
+    (codePoint >= 0xffe0 && codePoint <= 0xffe6) ||
+    (codePoint >= 0x1f300 && codePoint <= 0x1faff) ||
+    (codePoint >= 0x20000 && codePoint <= 0x3fffd)
+  ) {
+    return 2;
+  }
+  return 1;
 }
