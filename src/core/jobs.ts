@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { incompatibleShellReason, type ShellDialect } from "../config.js";
 import type { TmuxClient } from "../tmux/client.js";
-import type { Job } from "../types.js";
+import type { Job, PaneState } from "../types.js";
 import {
   jobLogPath,
   readLogTail,
@@ -138,6 +138,10 @@ export function scrubOutput(lines: string[]): string[] {
 /** Finished jobs retained for late read/wait lookups before pruning. */
 const MAX_FINISHED_JOBS = 100;
 
+/** How long launch waits for a fresh pane's shell to print its prompt. */
+const SHELL_READY_TIMEOUT_MS = 2000;
+const SHELL_READY_POLL_MS = 25;
+
 /**
  * How much of a job's log tail to scan for the exit sentinel. The sentinel
  * prints at exit, so it sits within the last few lines of the stream — but a
@@ -201,7 +205,7 @@ export class JobManager {
     command: string,
     forcedDialect: ShellDialect | null,
   ): Promise<Job> {
-    const state = await this.client.paneState(paneId);
+    const state = await this.awaitShellReady(paneId);
     // An unrecognized foreground command is not fatal — it is usually a
     // wrapper or a program the pane is running — and posix stays the safe
     // default. A shell that is known to be unable to evaluate the sentinel
@@ -243,6 +247,31 @@ export class JobManager {
     this.jobs.set(jobId, job);
     this.prune();
     return job;
+  }
+
+  /**
+   * A brand-new pane reports a completely blank screen — cursor at origin,
+   * no history — until its shell prints the first prompt. Typing the command
+   * before that still works (the pty buffers input), but the pty's canonical
+   * echo then precedes the prompt, which arrives later and glues itself to
+   * the job's first output line (`sh-5.3$ 1`). That pollutes reads and log
+   * parsing, and the prompt lands inside the job's output slice because the
+   * baseline was taken before it printed. Wait for the prompt; a pane that
+   * stays blank past the cap proceeds anyway (some shells print nothing).
+   */
+  private async awaitShellReady(paneId: string): Promise<PaneState> {
+    let state = await this.client.paneState(paneId);
+    const deadline = Date.now() + SHELL_READY_TIMEOUT_MS;
+    while (
+      state.historySize === 0 &&
+      state.cursorY === 0 &&
+      state.cursorX === 0 &&
+      Date.now() < deadline
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, SHELL_READY_POLL_MS));
+      state = await this.client.paneState(paneId);
+    }
+    return state;
   }
 
   /**

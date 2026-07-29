@@ -5,6 +5,7 @@ export interface PaneState {
   historySize: number;
   historyLimit: number;
   cursorY: number;
+  cursorX: number;
   paneHeight: number;
   currentCommand: string;
   currentPath: string;

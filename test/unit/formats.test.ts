@@ -10,11 +10,12 @@ import {
 
 describe("parsePaneState", () => {
   test("parses a tab-separated state line", () => {
-    const state = parsePaneState("1042\t2000\t12\t50\tzsh\t/home/tom/code\n");
+    const state = parsePaneState("1042\t2000\t12\t7\t50\tzsh\t/home/tom/code\n");
     expect(state).toEqual({
       historySize: 1042,
       historyLimit: 2000,
       cursorY: 12,
+      cursorX: 7,
       paneHeight: 50,
       currentCommand: "zsh",
       currentPath: "/home/tom/code",
@@ -22,7 +23,7 @@ describe("parsePaneState", () => {
   });
 
   test("rejoins paths containing tabs", () => {
-    const state = parsePaneState("0\t2000\t0\t50\tbash\t/tmp/a\tb");
+    const state = parsePaneState("0\t2000\t0\t7\t50\tbash\t/tmp/a\tb");
     expect(state.currentPath).toBe("/tmp/a\tb");
   });
 

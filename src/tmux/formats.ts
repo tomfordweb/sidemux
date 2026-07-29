@@ -73,6 +73,7 @@ export const PANE_STATE_FORMAT = [
   "#{history_size}",
   "#{history_limit}",
   "#{cursor_y}",
+  "#{cursor_x}",
   "#{pane_height}",
   "#{pane_current_command}",
   "#{pane_current_path}",
@@ -80,7 +81,7 @@ export const PANE_STATE_FORMAT = [
 
 export function parsePaneState(line: string): PaneState {
   const parts = line.replace(/\n$/, "").split(SEP);
-  if (parts.length < 6) {
+  if (parts.length < 7) {
     throw new Error(`unexpected pane state line: ${JSON.stringify(line)}`);
   }
   const field = (index: number): string => parts[index] ?? "";
@@ -88,10 +89,11 @@ export function parsePaneState(line: string): PaneState {
     historySize: Number.parseInt(field(0), 10),
     historyLimit: Number.parseInt(field(1), 10),
     cursorY: Number.parseInt(field(2), 10),
-    paneHeight: Number.parseInt(field(3), 10),
-    currentCommand: field(4),
+    cursorX: Number.parseInt(field(3), 10),
+    paneHeight: Number.parseInt(field(4), 10),
+    currentCommand: field(5),
     // pane_current_path may itself contain tabs in pathological cases; rejoin.
-    currentPath: parts.slice(5).join(SEP),
+    currentPath: parts.slice(6).join(SEP),
   };
 }
 
