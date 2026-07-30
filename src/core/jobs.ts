@@ -48,6 +48,28 @@ export function buildPipefailPrefix(dialect: ShellDialect): string {
     : "(set -o pipefail) 2>/dev/null && set -o pipefail; ";
 }
 
+/**
+ * Commands containing `exit` or `exec` as a word can terminate (or replace)
+ * the pane shell before the appended sentinel printf ever runs — the sentinel
+ * then exists nowhere, not even in the pipe-pane log, and the job sits
+ * "running" until its timeout (sidemux-6e2). Just those commands are wrapped
+ * in a subshell: `exit`/`exec` end the subshell, the outer shell survives to
+ * print the sentinel, and the exit code is preserved (`( exit 7 )` is 7).
+ * posix-only — fish has no subshell operator; a fish `exit` closes the pane,
+ * which pane-death handling already settles.
+ */
+const EXIT_GUARD_NEEDED = /(^|[;&|({\s])(exit|exec)([;&|)\s]|$)/;
+
+export function buildLaunchBody(
+  command: string,
+  dialect: ShellDialect,
+): string {
+  if (dialect === "fish" || !EXIT_GUARD_NEEDED.test(command)) {
+    return command;
+  }
+  return `( ${command} )`;
+}
+
 export function sentinelRegex(jobId: string): RegExp {
   return new RegExp(`<<SMUX:${jobId}:(\\d+)>>`);
 }
@@ -236,7 +258,9 @@ export class JobManager {
 
     await this.client.sendLiteral(
       paneId,
-      buildPipefailPrefix(dialect) + command + buildSentinelSuffix(jobId, dialect),
+      buildPipefailPrefix(dialect) +
+        buildLaunchBody(command, dialect) +
+        buildSentinelSuffix(jobId, dialect),
     );
     await this.client.sendKeys(paneId, ["Enter"]);
 

@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 import {
   JobManager,
+  buildLaunchBody,
   buildPipefailPrefix,
   buildSentinelSuffix,
   makeJobId,
@@ -26,6 +27,22 @@ describe("sentinel", () => {
     expect(buildSentinelSuffix("j1a2b3", "fish")).toBe(
       "; printf '\\n<<SMUX:%s:%d>>\\n' 'j1a2b3' $status",
     );
+  });
+
+  test("exit/exec commands are subshell-wrapped so the sentinel survives (sidemux-6e2)", () => {
+    expect(buildLaunchBody("echo hi; exit 0", "posix")).toBe(
+      "( echo hi; exit 0 )",
+    );
+    expect(buildLaunchBody("exit 7", "posix")).toBe("( exit 7 )");
+    expect(buildLaunchBody("exec htop", "posix")).toBe("( exec htop )");
+    // Word-boundary only: exit as a substring or quoted text stays unwrapped.
+    expect(buildLaunchBody("pnpm run exit-lint", "posix")).toBe(
+      "pnpm run exit-lint",
+    );
+    expect(buildLaunchBody('echo "exit"', "posix")).toBe('echo "exit"');
+    expect(buildLaunchBody("pnpm test", "posix")).toBe("pnpm test");
+    // fish has no subshell operator; pane-death handling covers its exit.
+    expect(buildLaunchBody("exit 1", "fish")).toBe("exit 1");
   });
 
   test("posix prefix enables pipefail with a quiet fallback, fish gets none", () => {

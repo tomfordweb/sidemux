@@ -103,6 +103,23 @@ describe.skipIf(!tmuxAvailable())("run → wait against real tmux", () => {
     },
   );
 
+  test("a command containing exit still settles with its code, pane intact (sidemux-6e2)", async () => {
+    const pane = await fx.newPane();
+    const job = await jobs.launch(pane, "echo pre-exit-probe; exit 7", null);
+    const result = await waitFor(fx.client, pane, jobs, job, {
+      until: "exit",
+      timeoutMs: 10_000,
+    });
+    // Without the subshell guard, `exit` killed the shell before the
+    // sentinel printf, the sentinel existed nowhere, and this wait ran to
+    // its timeout with the job stuck "running".
+    expect(result.status).toBe("exit");
+    expect(result.exitCode).toBe(7);
+    expect(job.status).toBe("failed");
+    expect(await fx.client.paneExists(pane)).toBe(true);
+    await fx.client.killPane(pane).catch(() => undefined);
+  });
+
   test("long command: wait times out re-armably, second wait completes", async () => {
     const job = await jobs.launch(
       fx.firstPane,
