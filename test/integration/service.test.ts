@@ -45,6 +45,22 @@ describe.skipIf(!tmuxAvailable())(
       expect(result.tail).not.toContain("<<SMUX:");
     });
 
+    test("success tail is a real multi-line tail, not prompt redraw (github#35)", async () => {
+      const result = await service.run({
+        command: 'for i in $(seq 1 8); do echo "PROBE-LINE-$i"; done',
+        name: "svc",
+        timeout_ms: 10_000,
+        background: false,
+      });
+      expect(result.status).toBe("done");
+      // Success window is 5 lines; all of them must be job output — the
+      // shell's post-exit prompt redraw must not eat the window.
+      for (const n of [4, 5, 6, 7, 8]) {
+        expect(result.tail).toContain(`PROBE-LINE-${n}`);
+      }
+      expect(result.tail.trimEnd().endsWith("PROBE-LINE-8")).toBe(true);
+    });
+
     test("run reuses the managed pane and cd-prefixes when cwd differs", async () => {
       const result = await service.run({
         command: "pwd",
