@@ -637,21 +637,22 @@ describe.skipIf(!tmuxAvailable())(
       await service.kill({ job_id: run.job_id, mode: "kill-pane" });
     });
 
-    test("run whose command exits the shell reports unknown without throwing", async () => {
-      // `exit 7` runs before the appended sentinel, so the pane's shell is gone
-      // before an exit code can be read. sidemux must report an unknown outcome
-      // rather than surfacing a raw tmux "can't find pane" error, and must drop
-      // the dead pane from its registry (no stale busy entry left behind).
+    test("run whose command exits keeps the pane and reports the real code (sidemux-6e2)", async () => {
+      // `exit 7` used to kill the pane shell before the appended sentinel
+      // could run, so the best sidemux could do was report "unknown" for the
+      // dead pane. The subshell guard confines the exit: the sentinel prints
+      // with the real code and the pane stays reusable.
       const result = await service.run({
         command: "echo bye; exit 7",
         name: "selfexit",
         timeout_ms: 10_000,
         background: false,
       });
-      expect(result.status).toBe("unknown");
-      expect(result.exit_code).toBeNull();
+      expect(result.status).toBe("failed");
+      expect(result.exit_code).toBe(7);
+      expect(result.tail).toContain("bye");
       const after = await service.listPanes(true);
-      expect(after.find((p) => p.pane === result.pane)).toBeUndefined();
+      expect(after.find((p) => p.pane === result.pane)).toBeDefined();
     });
 
     test("close_all survives a managed pane that died out-of-band", async () => {

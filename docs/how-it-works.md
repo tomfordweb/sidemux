@@ -54,6 +54,14 @@ pnpm build; printf '\n<<SMUX:%s:%d>>\n' 'j4f2a1' $?
   stream, so the sentinel is always there even when the pane no longer shows
   it (github#28).
 
+- A posix command containing `exit` or `exec` as a word is wrapped in a
+  subshell (`( … )`) before the suffix is appended: either would otherwise
+  terminate or replace the pane's shell before the sentinel printf runs,
+  leaving a sentinel that exists nowhere — not even in the log — and a job
+  stuck "running" until its timeout. The exit code passes through unchanged
+  (`( exit 7 )` is 7). The one observable difference: that command's `cd` and
+  environment changes don't persist in the pane.
+
 Two limits are known and deliberate for v1:
 
 - A trailing `#` comment in your command swallows the sentinel, and the wait
