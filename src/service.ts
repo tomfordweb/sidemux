@@ -1,7 +1,12 @@
 import type { Config, ShellDialect } from "./config.js";
 import { loadProjectScripts, type ProjectScript } from "./config-file.js";
 import { CursorTracker } from "./core/cursor.js";
-import { JobManager, SENTINEL_MARKER, scrubOutput } from "./core/jobs.js";
+import {
+  JobManager,
+  SENTINEL_MARKER,
+  scrubOutput,
+  sentinelRegex,
+} from "./core/jobs.js";
 import { pruneOldLogs, readJobLog } from "./core/logs.js";
 import { shapeOutput, type ShapedOutput } from "./core/output.js";
 import { PaneAllocator } from "./core/panes.js";
@@ -780,7 +785,18 @@ export class SidemuxService {
     tailLines = TAIL_LINES,
   ): Promise<ShapedOutput> {
     const lines = await this.captureJobRegion(job);
-    return shapeOutput(scrubOutput(lines), {
+    // The job ends at its sentinel. A pane capture keeps whatever the shell
+    // drew afterwards — a multi-line prompt redraw is 3-4 lines, which ate
+    // most of a last-N tail window (github#35). Cut there; the log-file path
+    // (readJobLog) already does.
+    const regex = sentinelRegex(job.jobId);
+    const sentinelAt = lines.findIndex((line) => regex.test(line));
+    const region = sentinelAt === -1 ? lines : lines.slice(0, sentinelAt + 1);
+    const scrubbed = scrubOutput(region);
+    while (scrubbed.length > 0 && scrubbed.at(-1)?.trim() === "") {
+      scrubbed.pop();
+    }
+    return shapeOutput(scrubbed, {
       lines: tailLines,
       maxBytes: TAIL_BYTES,
     });
