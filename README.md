@@ -333,6 +333,18 @@ echo immediately, at 0% progress. Anchor completion detection on the job's exit
 marker `<<SMUX:<job_id>:<digits>>` instead. It only ever prints when the job
 exits, because the echoed line carries a literal `%d` where the digits go.
 
+**`log_file` holds raw terminal bytes.** ANSI colors, OSC titles, and one
+spinner frame per repaint — a direct `grep` on a failed job returns spinner
+lines, not the error. Use `read` with `since: "job"` and `grep` (sanitized
+before matching), or `sidemux log <job_id>` to print the log as display-ready
+text that greps like plain output.
+
+**`close: true` destroys the evidence on failure.** The pane is gone, so
+follow-up `read` calls error; only the returned tail and the `log_file`
+survive. Leave `close` off for the first run of a typecheck/lint/build/test
+where failures are likely and full diagnostics matter; reach for `close: true`
+once a command is known stable or the tail is all you need.
+
 **Long waits vs. client timeouts.** `wait` returns `status: "timeout"` before
 most client tool timeouts fire, and the agent simply calls `wait` again. For a
 single long `run` call, the MCP client must allow a request long enough for the

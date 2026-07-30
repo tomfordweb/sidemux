@@ -4,6 +4,7 @@ import { loadConfig } from "./config.js";
 import { loadGlobalFileConfig } from "./config-file.js";
 import { runDashboard } from "./dashboard.js";
 import { runInit } from "./init/install.js";
+import { runLogCommand } from "./log-cli.js";
 import { buildServer } from "./server.js";
 import { SidemuxService } from "./service.js";
 import { TmuxClient } from "./tmux/client.js";
@@ -43,6 +44,14 @@ async function main(): Promise<void> {
       argv: process.argv.slice(3),
     });
     process.exit(code);
+  }
+  if (process.argv[2] === "log") {
+    const config = loadConfig(
+      process.env,
+      process.cwd(),
+      loadGlobalFileConfig(),
+    );
+    process.exit(await runLogCommand(process.argv.slice(3), config));
   }
   if (process.argv[2] === "dashboard") {
     const config = loadConfig(

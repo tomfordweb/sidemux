@@ -88,8 +88,11 @@ export function buildServer(service: SidemuxService): McpServer {
         'to timeout_ms; if the command is still running you get status="running" — call wait ' +
         "next, do NOT poll with read. The returned tail is usually all you need on success; " +
         "only read more on failure. Use background=true for dev servers and watchers. The " +
-        "job's complete output is also teed to log_file (raw terminal bytes), which you can " +
-        "grep/tail directly — useful for long jobs and output beyond the pane's scrollback. " +
+        "job's complete output is also teed to log_file — useful for long jobs and output " +
+        "beyond the pane's scrollback. The file holds RAW terminal bytes (ANSI colors, one " +
+        "spinner frame per repaint), so don't grep it directly for errors: use " +
+        'read {since:"job", grep:"..."} or the `sidemux log <job_id>` CLI, both of which ' +
+        "serve display-ready text. " +
         "The log starts with the echoed command line, so never grep it for a completion " +
         "sentinel your own command prints (it matches the echo instantly); anchor on the " +
         'job\'s exit marker "<<SMUX:<job_id>:<digits>>" instead, which only prints on exit.',
@@ -145,7 +148,9 @@ export function buildServer(service: SidemuxService): McpServer {
           .describe(
             "Destroy the pane once the command exits (one-shot test/lint/build — keeps " +
               "the terminal tidy). The tail is captured first. Ignored for background runs, " +
-              "timeouts, and panes sidemux didn't create.",
+              "timeouts, and panes sidemux didn't create. Leave it off for a first run of " +
+              "checks that may fail: with close: true a failed pane is gone, follow-up read " +
+              "calls error, and only the returned tail (plus log_file) survives.",
           ),
       },
       outputSchema: {

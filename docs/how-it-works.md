@@ -122,12 +122,15 @@ never modified: exit-code sentinel semantics, tty-ness (colors, buffering),
 and the echo-scrub logic all stay exactly as they were.
 
 - The file holds **raw terminal bytes**, including ANSI colors, CR overwrites
-  and OSC escapes. Agents tailing or grepping the file directly cope fine.
-  When sidemux itself serves output from the file (`read since="job"` after the
-  pane's `history-limit` has discarded early output), it sanitizes the escapes
-  first.
+  and OSC escapes. That makes a direct `grep` on it noisy: a progress spinner
+  leaves one frame per repaint, so grepping a failed job for its error returns
+  spinner lines instead. Use `read since="job"` with `grep` (sidemux sanitizes
+  before matching), or `sidemux log <job_id>` to print the whole log as
+  display-ready text — escapes stripped, CR overwrites collapsed to their
+  final frame — which greps like plain text.
 - `run` and `read` return the `log_file` path so the agent (or you) can
-  `tail -f` or `grep` it without another capture.
+  `tail -f` it live; for post-mortem grepping prefer the sanitized views
+  above.
 - **The file starts with the echoed command line**, the launch line sidemux
   typed into the pane, including your command text and the sentinel suffix.
   Never detect completion by grepping the log for a string that appears in
