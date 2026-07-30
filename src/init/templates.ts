@@ -120,7 +120,11 @@ function readStdin() {
 }
 
 function matchesDelegated(commandLine, delegated) {
-  const segments = commandLine.split(/&&|\\|\\||[;|]/).map((s) => s.trim()).filter(Boolean);
+  // Quoted spans are data, not commands (github#32): a delegated name inside
+  // an argument string ('--notes "... ./bin/deploy x"') must never match.
+  // Blank them out before splitting into command segments.
+  const bare = commandLine.replace(/'[^']*'|"(?:\\\\.|[^"\\\\])*"/g, ' ');
+  const segments = bare.split(/&&|\\|\\||[;|\\n]/).map((s) => s.trim()).filter(Boolean);
   for (const segment of segments) {
     for (const target of delegated) {
       if (segment === target || segment.startsWith(target + ' ')) return target;
