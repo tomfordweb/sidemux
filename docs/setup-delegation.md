@@ -127,11 +127,11 @@ the message back to the model", along with an actionable note:
 ```
 [sidemux] Delegate "pnpm test" to a tmux pane instead of running it inline.
 Use the sidemux MCP tool:
-  run { command: "pnpm test", close: true }
+  run { command: "pnpm test", description: "<why>" }
 ```
 
-One-shot commands (test/lint/build) are suggested with `close: true`;
-long-running ones (dev/watch/serve) with `background: true`. The guard is
+Long-running commands (dev/watch/serve) are suggested with
+`background: true` as well. The guard is
 **fail-open**: any parse error, a non-Bash tool, or a non-matching command
 exits 0, so it can never brick your Bash tool. Set `SIDEMUX_DELEGATE_OFF=1` to
 bypass it in an emergency.
