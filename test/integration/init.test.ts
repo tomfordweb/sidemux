@@ -129,6 +129,30 @@ describe("sidemux init", () => {
     });
   });
 
+  test("the guard ignores delegated names inside quoted arguments (github#32)", () => {
+    return runInit({ cwd: dir, argv: ["--yes"], io: fakeIo().io }).then(() => {
+      // The delegated command appears only as data in a quoted argument —
+      // including one with newlines and separators — so nothing is blocked.
+      const notes = runGuard(
+        dir,
+        'bd update x --notes "REMAINING:\n  glab mr merge 392 && pnpm test; pnpm build"',
+      );
+      expect(notes.status).toBe(0);
+
+      const single = runGuard(dir, "echo 'run pnpm test later'");
+      expect(single.status).toBe(0);
+
+      // A real delegated command outside the quotes still blocks, even with
+      // a quoted argument on the same line.
+      const real = runGuard(dir, 'echo "not pnpm build" && pnpm test');
+      expect(real.status).toBe(2);
+
+      // Multi-line commands: an unquoted newline separates segments.
+      const multiline = runGuard(dir, 'echo start\npnpm test');
+      expect(multiline.status).toBe(2);
+    });
+  });
+
   test("--uninstall removes the guard, hook, and directives", async () => {
     const { io } = fakeIo();
     await runInit({ cwd: dir, argv: ["--yes"], io });
