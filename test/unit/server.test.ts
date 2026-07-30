@@ -224,6 +224,40 @@ describe("buildServer", () => {
     );
   });
 
+  test("timeout_seconds is honored as an alias on run and wait (github#37)", async () => {
+    await client.callTool({
+      name: "run",
+      arguments: {
+        command: "echo hi",
+        description: "alias probe",
+        timeout_seconds: 600,
+      },
+    });
+    expect(service.run).toHaveBeenCalledWith(
+      expect.objectContaining({ timeout_ms: 600_000 }),
+      undefined,
+    );
+
+    await client.callTool({
+      name: "wait",
+      arguments: { job_id: "jabc123", timeout_seconds: 600 },
+    });
+    expect(service.wait).toHaveBeenCalledWith(
+      expect.objectContaining({ timeout_ms: 600_000 }),
+      undefined,
+    );
+
+    // Explicit timeout_ms wins over the alias.
+    await client.callTool({
+      name: "wait",
+      arguments: { job_id: "jabc123", timeout_ms: 30_000, timeout_seconds: 600 },
+    });
+    expect(service.wait).toHaveBeenLastCalledWith(
+      expect.objectContaining({ timeout_ms: 30_000 }),
+      undefined,
+    );
+  });
+
   test("read defaults to incremental last-read", async () => {
     await client.callTool({ name: "read", arguments: { pane: "%7" } });
     expect(service.read).toHaveBeenCalledWith(

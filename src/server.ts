@@ -45,6 +45,34 @@ function progressReporter(
   };
 }
 
+/**
+ * Effective blocking time for run/wait. `timeout_seconds` is an accepted
+ * alias (github#37): agents kept passing it, and an unknown key is silently
+ * stripped by schema validation — the call then ran with the 60s/120s default
+ * and reported status="timeout" on a healthy job. Explicit timeout_ms wins.
+ */
+export function resolveTimeoutMs(
+  timeoutMs: number | undefined,
+  timeoutSeconds: number | undefined,
+  defaultMs: number,
+): number {
+  if (timeoutMs !== undefined) {
+    return timeoutMs;
+  }
+  if (timeoutSeconds !== undefined) {
+    return Math.min(timeoutSeconds * 1000, MAX_TIMEOUT_MS);
+  }
+  return defaultMs;
+}
+
+const timeoutSecondsField = z
+  .number()
+  .int()
+  .positive()
+  .max(86_400)
+  .optional()
+  .describe("Alias for timeout_ms, in seconds. timeout_ms wins when both are set.");
+
 function toResult(structured: Record<string, unknown>, summary: string) {
   return {
     content: [{ type: "text" as const, text: summary }],
@@ -127,12 +155,13 @@ export function buildServer(service: SidemuxService): McpServer {
           .int()
           .positive()
           .max(MAX_TIMEOUT_MS)
-          .default(60_000)
+          .optional()
           .describe(
-            "How long to block for the command (ms), up to 24h. For jobs beyond " +
-              "your MCP client's tool timeout, prefer background: true plus a " +
-              "single long wait.",
+            "How long to block for the command (ms), default 60000, up to 24h. " +
+              "For jobs beyond your MCP client's tool timeout, prefer " +
+              "background: true plus a single long wait.",
           ),
+        timeout_seconds: timeoutSecondsField,
         background: z
           .boolean()
           .default(false)
@@ -171,7 +200,14 @@ export function buildServer(service: SidemuxService): McpServer {
     },
     async (args, extra) => {
       const result = await service.run(
-        args,
+        {
+          ...args,
+          timeout_ms: resolveTimeoutMs(
+            args.timeout_ms,
+            args.timeout_seconds,
+            60_000,
+          ),
+        },
         progressReporter(extra as unknown as Extra),
       );
       const summary =
@@ -231,12 +267,13 @@ export function buildServer(service: SidemuxService): McpServer {
           .int()
           .positive()
           .max(MAX_TIMEOUT_MS)
-          .default(120_000)
+          .optional()
           .describe(
-            "How long to block (ms), up to 24h. For a multi-hour job pass the " +
-              "full expected duration: one long wait yields exactly one " +
-              "completion event, even if your MCP client backgrounds the call.",
+            "How long to block (ms), default 120000, up to 24h. For a multi-hour " +
+              "job pass the full expected duration: one long wait yields exactly " +
+              "one completion event, even if your MCP client backgrounds the call.",
           ),
+        timeout_seconds: timeoutSecondsField,
       },
       outputSchema: {
         status: z.enum(["exit", "pattern", "idle", "timeout"]),
@@ -251,7 +288,14 @@ export function buildServer(service: SidemuxService): McpServer {
     },
     async (args, extra) => {
       const result = await service.wait(
-        args,
+        {
+          ...args,
+          timeout_ms: resolveTimeoutMs(
+            args.timeout_ms,
+            args.timeout_seconds,
+            120_000,
+          ),
+        },
         progressReporter(extra as unknown as Extra),
       );
       const head =
